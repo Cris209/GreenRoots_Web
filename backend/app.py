@@ -13,7 +13,8 @@ CORS(app)
 
 
 firebase_key = os.getenv("FIREBASE_KEY")
-firebase_admin.initialize_app(firebase_key)
+cred_dict = json.loads(firebase_key)
+firebase_admin.initialize_app(cred_dict)
 db = firestore.client()
 
 usuarios_ref = db.collection("usuarios")
