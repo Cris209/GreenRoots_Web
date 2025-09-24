@@ -1,34 +1,30 @@
-document.getElementById("loginForm").addEventListener("submit", async function(e) {
+document.getElementById("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
 
-  const correo = document.getElementById("email").value;
+  // Tomamos los valores del formulario
+  const email = document.getElementById("email").value;
   const password = document.getElementById("password").value;
 
   try {
+    // Llamamos a la API de tu backend
     const response = await fetch("https://greenroots-web.onrender.com/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ correo, password })
+      body: JSON.stringify({ email, password }) // 👈 usamos "email" en vez de "correo"
     });
 
     const data = await response.json();
 
     if (response.ok) {
-      alert(`Bienvenido, ${data.usuario.nombre} (Rol: ${data.usuario.rol})`);
-      // Redirigir según rol
-      if (data.usuario.rol === "administrador") {
-        window.location.href = "admin.html";
-      } else if (data.usuario.rol === "gobierno") {
-        window.location.href = "gobierno.html";
-      } else {
-        window.location.href = "voluntario.html";
-      }
+      alert("✅ Inicio de sesión exitoso");
+      console.log("Usuario:", data);
+      // Aquí podrías redirigir a otra página
+      // window.location.href = "/dashboard.html";
     } else {
-      alert(data.error);
+      alert(`❌ Error: ${data.error}`);
     }
-
   } catch (err) {
-    console.error(err);
-    alert("Error al conectar con el servidor");
+    console.error("Error en la petición:", err);
+    alert("⚠️ Error al conectar con el servidor");
   }
 });
