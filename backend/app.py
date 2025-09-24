@@ -1,9 +1,11 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, initialize_app
 import bcrypt
 import random
+import os
+import json 
 
 # Inicializar Flask
 app = Flask(__name__)
