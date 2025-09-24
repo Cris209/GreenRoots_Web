@@ -7,7 +7,7 @@ document.getElementById("registroForm").addEventListener("submit", async functio
   const rol = document.getElementById("rol").value;
 
   try {
-    const response = await fetch("http://127.0.0.1:5000/api/registro", {
+    const response = await fetch("https://greenroots-web.onrender.com/api/registro", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ nombre, correo, password, rol })
