@@ -60,7 +60,7 @@ app.post("/api/registro", async (req, res) => {
 // ==========================
 // 📌 Ruta: Iniciar sesión
 // ==========================
-app.post("/api/iniciar_sesion", async (req, res) => {
+app.post("/api/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
