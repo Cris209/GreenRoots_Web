@@ -13,6 +13,10 @@ CORS(app)
 
 
 firebase_key = os.getenv("FIREBASE_KEY")
+
+if not firebase_key:
+    raise Exception("❌ La variable de entorno FIREBASE_KEY no está configurada en Render")
+
 cred_dict = json.loads(firebase_key)
 cred = credentials.Certificate(cred_dict)
 firebase_admin.initialize_app(cred)
