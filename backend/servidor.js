@@ -20,15 +20,14 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-
 // ==========================
 // 📌 Ruta: Registro de usuario
 // ==========================
 app.post("/api/registro", async (req, res) => {
   try {
-    const { nombre, apellido, email, password } = req.body;
+    const { nombre, email, password, rol } = req.body;
 
-    if (!nombre || !apellido || !email || !password) {
+    if (!nombre || !email || !password) {
       return res.status(400).json({ ok: false, mensaje: "Faltan datos" });
     }
 
@@ -44,9 +43,9 @@ app.post("/api/registro", async (req, res) => {
     // Guardar usuario en Firestore
     await db.collection("usuarios").add({
       nombre,
-      apellido,
       email,
       password: hashedPassword,
+      rol,
     });
 
     res.json({ ok: true, mensaje: "Usuario registrado correctamente" });
@@ -55,7 +54,6 @@ app.post("/api/registro", async (req, res) => {
     res.status(500).json({ ok: false, mensaje: "Error en el servidor" });
   }
 });
-
 
 // ==========================
 // 📌 Ruta: Iniciar sesión
@@ -86,13 +84,12 @@ app.post("/api/login", async (req, res) => {
       return res.status(401).json({ ok: false, mensaje: "Credenciales incorrectas" });
     }
 
-    res.json({ ok: true, mensaje: "Sesión iniciada", usuario: { email: usuario.email, nombre: usuario.nombre } });
+    res.json({ ok: true, mensaje: "Sesión iniciada", usuario: { email: usuario.email, nombre: usuario.nombre, rol: usuario.rol } });
   } catch (error) {
     console.error("Error en login:", error);
     res.status(500).json({ ok: false, mensaje: "Error en el servidor" });
   }
 });
-
 
 // ==========================
 // 📌 Servidor en Render
@@ -101,4 +98,3 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor Express corriendo en puerto ${PORT}`);
 });
-
