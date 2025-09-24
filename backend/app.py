@@ -9,9 +9,9 @@ import random
 app = Flask(__name__)
 CORS(app)
 
-# Inicializar Firebase
-cred = credentials.Certificate("serviceAccountKey.json")  # tu clave privada de Firebase
-firebase_admin.initialize_app(cred)
+
+firebase_key = os.getenv("FIREBASE_KEY")
+firebase_admin.initialize_app(firebase_key)
 db = firestore.client()
 
 usuarios_ref = db.collection("usuarios")
