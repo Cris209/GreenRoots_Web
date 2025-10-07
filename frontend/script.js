@@ -1,47 +1,74 @@
-// Login
-document.getElementById("loginForm").addEventListener("submit", async function(e) {
+const API_URL = "https://greenroots-web.onrender.com/api";
+
+// -------------------------
+// INICIO DE SESIÓN
+// -------------------------
+document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
 
-  // Obtener valores del formulario
-  const correo = document.getElementById("email").value.trim();
+  const correo = document.getElementById("correo").value.trim();
   const password = document.getElementById("password").value.trim();
+  const mensajeError = document.getElementById("mensaje-error");
 
-  if (!correo || !password) {
-    alert("Por favor completa todos los campos");
-    return;
-  }
+  mensajeError.textContent = "";
 
   try {
-    // Llamada al backend
-    const response = await fetch("https://greenroots-web.onrender.com/api/login", {
+    const res = await fetch(`${API_URL}/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: correo, // ⚠️ Debe ser 'email' para coincidir con el backend
-        password
-      })
+      credentials: "include", // permite recibir cookie del backend
+      body: JSON.stringify({ correo, password })
     });
 
-    const data = await response.json();
+    const data = await res.json();
 
-    if (response.ok && data.ok) {
-      alert(`Bienvenido, ${data.usuario.nombre} 🎉`);
-      
-      // Redirigir según rol si existe
-      if (data.usuario.rol === "administrador") {
-        window.location.href = "admin.html";
-      } else if (data.usuario.rol === "gobierno") {
-        window.location.href = "gobierno.html";
-      } else {
-        window.location.href = "voluntario.html";
-      }
-
-    } else {
-      alert(data.mensaje || "Credenciales incorrectas");
+    if (!res.ok) {
+      mensajeError.textContent = data.error || "Error en el inicio de sesión";
+      return;
     }
 
+    // Redirigir si el login es exitoso
+    window.location.href = "home.html";
   } catch (err) {
-    console.error("Error al conectar con el servidor:", err);
-    alert("Error al conectar con el servidor");
+    console.error("Error al iniciar sesión:", err);
+    mensajeError.textContent = "Error de conexión con el servidor.";
   }
 });
+
+// -------------------------
+// VERIFICAR SESIÓN ACTIVA
+// -------------------------
+async function verificarSesion() {
+  try {
+    const res = await fetch(`${API_URL}/verificar_sesion`, {
+      method: "GET",
+      credentials: "include",
+    });
+
+    if (!res.ok) {
+      window.location.href = "index.html"; // si no hay sesión, volver al login
+    }
+  } catch (err) {
+    console.error("Error verificando sesión:", err);
+    window.location.href = "index.html";
+  }
+}
+
+// -------------------------
+// CERRAR SESIÓN
+// -------------------------
+async function cerrarSesion() {
+  try {
+    await fetch(`${API_URL}/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+    window.location.href = "index.html";
+  } catch (err) {
+    console.error("Error al cerrar sesión:", err);
+  }
+}
+
+// Exportar para usar desde home.html
+window.verificarSesion = verificarSesion;
+window.cerrarSesion = cerrarSesion;
