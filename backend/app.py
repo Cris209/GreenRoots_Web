@@ -1,29 +1,26 @@
-from flask import Flask, request, jsonify, session, make_response
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
 import bcrypt
-import re
-import os
 import json
-import random
+import os
+import re
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 # ----------------------------
-# Configuración general
+# CONFIGURACIÓN BASE
 # ----------------------------
 app = Flask(__name__)
-CORS(app, supports_credentials=True)
-app.secret_key = os.getenv("SECRET_KEY", "clave_super_secreta")
+CORS(app)
 
-# Duración de sesión
-app.permanent_session_lifetime = timedelta(minutes=15)
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "mi_clave_segura")
 
-# Inicializar Firebase
 firebase_key = os.getenv("FIREBASE_KEY")
+
 if not firebase_key:
-    raise Exception("❌ La variable de entorno FIREBASE_KEY no está configurada en Render")
+    raise Exception("❌ La variable de entorno FIREBASE_KEY no está configurada")
 
 cred_dict = json.loads(firebase_key)
 cred = credentials.Certificate(cred_dict)
@@ -31,138 +28,124 @@ firebase_admin.initialize_app(cred)
 db = firestore.client()
 
 usuarios_ref = db.collection("usuarios")
-intentos_ref = db.collection("intentos_fallidos")
 
-# Lista básica de palabras prohibidas
-PALABRAS_OBSCENAS = ["tonto", "idiota", "estupido", "puto", "mierda", "imbecil"]
+# Control de intentos fallidos
+intentos_fallidos = {}
+bloqueados = {}
 
 # ----------------------------
-# Validaciones auxiliares
+# FUNCIONES DE VALIDACIÓN
 # ----------------------------
-def validar_nombre(nombre):
-    if len(nombre) > 30:
-        return False
-    if any(palabra in nombre.lower() for palabra in PALABRAS_OBSCENAS):
-        return False
-    return re.match(r"^[a-zA-ZáéíóúÁÉÍÓÚñÑ ]+$", nombre) is not None
-
-def validar_password(password):
-    return bool(re.match(r"^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[\W_]).{8,}$", password))
 
 def validar_correo(correo):
-    return bool(re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}$", correo))
+    """Valida que el correo tenga un dominio válido y sin caracteres raros"""
+    patron = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+    return re.match(patron, correo)
+
+def esta_bloqueado(correo):
+    """Revisa si el usuario está temporalmente bloqueado"""
+    if correo in bloqueados:
+        if time.time() < bloqueados[correo]:
+            return True
+        else:
+            del bloqueados[correo]
+    return False
+
+def registrar_intento_fallido(correo):
+    """Aumenta el contador de intentos fallidos y bloquea si supera el límite"""
+    if correo not in intentos_fallidos:
+        intentos_fallidos[correo] = 0
+    intentos_fallidos[correo] += 1
+
+    if intentos_fallidos[correo] >= 3:
+        bloqueados[correo] = time.time() + 600  # 10 minutos de bloqueo
+        intentos_fallidos[correo] = 0
+
+def limpiar_intentos(correo):
+    """Limpia los intentos si el usuario inicia sesión correctamente"""
+    if correo in intentos_fallidos:
+        del intentos_fallidos[correo]
 
 # ----------------------------
-# Registro de usuario
-# ----------------------------
-@app.route("/api/registro", methods=["POST"])
-def registro():
-    data = request.json
-    nombre = data.get("nombre", "").strip()
-    correo = data.get("correo", "").strip()
-    password = data.get("password", "").strip()
-    rol = data.get("rol", "voluntario")
-
-    # Validaciones
-    if not (nombre and correo and password):
-        return jsonify({"error": "Faltan datos"}), 400
-    if not validar_nombre(nombre):
-        return jsonify({"error": "Nombre inválido"}), 400
-    if not validar_correo(correo):
-        return jsonify({"error": "Correo inválido"}), 400
-    if not validar_password(password):
-        return jsonify({"error": "Contraseña insegura"}), 400
-
-    # Verificar si ya existe
-    docs = usuarios_ref.where("correo", "==", correo).stream()
-    if any(docs):
-        return jsonify({"error": "El correo ya está registrado"}), 400
-
-    # Encriptar contraseña
-    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
-
-    # Crear documento con ID aleatorio
-    user_id = str(random.randint(10000, 99999))
-
-    usuarios_ref.document(user_id).set({
-        "nombre": nombre,
-        "correo": correo,
-        "contraseña": hashed.decode("utf-8"),
-        "rol": rol
-    })
-
-    return jsonify({"mensaje": "Usuario registrado con éxito"}), 201
-
-# ----------------------------
-# Inicio de sesión
+# INICIO DE SESIÓN
 # ----------------------------
 @app.route("/api/login", methods=["POST"])
 def login():
     data = request.json
-    correo = data.get("correo", "").strip()
-    password = data.get("password", "").strip()
+    correo = data.get("correo")
+    password = data.get("password")
 
     if not (correo and password):
         return jsonify({"error": "Faltan datos"}), 400
 
-    # Buscar usuario
-    docs = usuarios_ref.where("correo", "==", correo).limit(1).stream()
-    user = next((doc.to_dict() for doc in docs), None)
+    # Validar formato del correo
+    if not validar_correo(correo):
+        return jsonify({"error": "Correo inválido"}), 400
+
+    # Revisar si el usuario está bloqueado
+    if esta_bloqueado(correo):
+        return jsonify({"error": "Demasiados intentos fallidos. Intenta de nuevo en 10 minutos."}), 403
+
+    # Buscar usuario en Firestore
+    docs = usuarios_ref.where("correo", "==", correo).stream()
+    user = None
+    for doc in docs:
+        user = doc.to_dict()
+        break
 
     if not user:
+        registrar_intento_fallido(correo)
         return jsonify({"error": "Usuario no encontrado"}), 404
 
-    # Comprobar bloqueos
-    intento_doc = intentos_ref.document(correo).get()
-    if intento_doc.exists:
-        intento_data = intento_doc.to_dict()
-        if intento_data["intentos"] >= 3 and time.time() - intento_data["ultimo_intento"] < 600:
-            return jsonify({"error": "Cuenta bloqueada temporalmente. Intenta más tarde."}), 403
-
-    # Validar contraseña
+    # Comparar contraseñas
     if not bcrypt.checkpw(password.encode("utf-8"), user["contraseña"].encode("utf-8")):
-        intentos_ref.document(correo).set({
-            "intentos": (intento_doc.to_dict()["intentos"] + 1 if intento_doc.exists else 1),
-            "ultimo_intento": time.time()
-        })
-        return jsonify({"error": "Credenciales incorrectas"}), 401
+        registrar_intento_fallido(correo)
+        return jsonify({"error": "Contraseña incorrecta"}), 401
 
-    # Restablecer intentos fallidos
-    intentos_ref.document(correo).set({"intentos": 0, "ultimo_intento": time.time()})
+    limpiar_intentos(correo)
 
-    # Crear sesión
-    session.permanent = True
-    session["usuario"] = {"correo": user["correo"], "rol": user["rol"], "nombre": user["nombre"]}
-
-    resp = make_response(jsonify({
-        "mensaje": "Inicio de sesión exitoso",
-        "usuario": session["usuario"]
+    # Crear cookie de sesión segura (expira en 15 minutos)
+    respuesta = make_response(jsonify({
+        "mensaje": "Login exitoso",
+        "usuario": {
+            "nombre": user["nombre"],
+            "correo": user["correo"],
+            "rol": user["rol"]
+        }
     }))
-    resp.set_cookie("session_id", session["usuario"]["correo"], max_age=900, httponly=True, secure=True, samesite="None")
+    expiracion = datetime.utcnow() + timedelta(minutes=15)
+    respuesta.set_cookie(
+        "session_token",
+        correo,  # temporal, idealmente aquí debería ir un JWT
+        httponly=True,
+        secure=True,
+        samesite="None",
+        expires=expiracion
+    )
 
-    return resp, 200
+    return respuesta, 200
 
 # ----------------------------
-# Verificación de sesión
+# VERIFICAR SESIÓN ACTIVA
 # ----------------------------
 @app.route("/api/verificar_sesion", methods=["GET"])
 def verificar_sesion():
-    if "usuario" in session:
-        return jsonify({"logueado": True, "usuario": session["usuario"]})
-    return jsonify({"logueado": False}), 401
+    session_token = request.cookies.get("session_token")
+    if not session_token:
+        return jsonify({"error": "Sesión expirada o no iniciada"}), 401
+    return jsonify({"mensaje": "Sesión activa"}), 200
 
 # ----------------------------
-# Cierre de sesión
+# CERRAR SESIÓN
 # ----------------------------
 @app.route("/api/logout", methods=["POST"])
 def logout():
-    session.clear()
-    resp = make_response(jsonify({"mensaje": "Sesión cerrada"}))
-    resp.delete_cookie("session_id")
-    return resp, 200
+    respuesta = make_response(jsonify({"mensaje": "Sesión cerrada"}))
+    respuesta.set_cookie("session_token", "", expires=0)
+    return respuesta, 200
 
 # ----------------------------
-# Ejecución
+# EJECUCIÓN
 # ----------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
