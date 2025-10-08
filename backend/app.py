@@ -3,38 +3,31 @@ from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
 import bcrypt
-import json
+import random
 import os
+import json
 import re
 import time
 from datetime import datetime, timedelta
 
 # ----------------------------
-# CONFIGURACIÓN BASE
+# Inicializar Flask
 # ----------------------------
 app = Flask(__name__)
 
-# ----------------------------
-# CONFIGURAR CORS
-# ----------------------------
-# Define los orígenes permitidos
+# Configurar CORS
 ORIGINS_PERMITIDOS = [
-    "http://localhost:5500",  # Frontend local
-    "https://greenroots-web.onrender.com"   # Reemplaza con tu dominio de frontend en producción
+    "http://localhost:5500",  # frontend local
+    "https://greenroots-web.onrender.com"   # reemplazar con tu dominio de producción
 ]
-
-CORS(
-    app,
-    supports_credentials=True,
-    origins=ORIGINS_PERMITIDOS
-)
+CORS(app, supports_credentials=True, origins=ORIGINS_PERMITIDOS)
 
 # ----------------------------
-# FIREBASE
+# Firebase
 # ----------------------------
 firebase_key = os.getenv("FIREBASE_KEY")
 if not firebase_key:
-    raise Exception("❌ La variable de entorno FIREBASE_KEY no está configurada")
+    raise Exception("❌ La variable de entorno FIREBASE_KEY no está configurada en Render")
 
 cred_dict = json.loads(firebase_key)
 cred = credentials.Certificate(cred_dict)
@@ -43,16 +36,43 @@ db = firestore.client()
 usuarios_ref = db.collection("usuarios")
 
 # ----------------------------
-# CONTROL DE INTENTOS FALLIDOS
+# Control de intentos de login
 # ----------------------------
 intentos_fallidos = {}
 bloqueados = {}
 
 # ----------------------------
-# FUNCIONES DE VALIDACIÓN
+# Funciones de validación
 # ----------------------------
+def validar_nombre(nombre):
+    """No caracteres especiales, no obscenos, máximo 30 caracteres"""
+    if len(nombre) > 30:
+        return False
+    if not re.match(r"^[a-zA-Z\s]+$", nombre):
+        return False
+    # Lista simple de palabras obscenas
+    obscenos = ["malo", "obsceno", "tonto"]  
+    for palabra in obscenos:
+        if palabra in nombre.lower():
+            return False
+    return True
+
+def validar_contraseña(password):
+    """Contraseña >6 caracteres, con mayúsculas, minúsculas, números y especiales"""
+    if len(password) < 6:
+        return False
+    if not re.search(r"[A-Z]", password):
+        return False
+    if not re.search(r"[a-z]", password):
+        return False
+    if not re.search(r"[0-9]", password):
+        return False
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        return False
+    return True
+
 def validar_correo(correo):
-    """Valida que el correo tenga un dominio válido y sin caracteres raros"""
+    """Correo con dominio válido y sin caracteres raros"""
     patron = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
     return re.match(patron, correo)
 
@@ -70,7 +90,7 @@ def registrar_intento_fallido(correo):
     intentos_fallidos[correo] += 1
 
     if intentos_fallidos[correo] >= 3:
-        bloqueados[correo] = time.time() + 600  # Bloqueo 10 minutos
+        bloqueados[correo] = time.time() + 600  # 10 min
         intentos_fallidos[correo] = 0
 
 def limpiar_intentos(correo):
@@ -78,7 +98,47 @@ def limpiar_intentos(correo):
         del intentos_fallidos[correo]
 
 # ----------------------------
-# LOGIN
+# Registro de usuario
+# ----------------------------
+@app.route("/api/registro", methods=["POST"])
+def registro():
+    data = request.json
+    nombre = data.get("nombre")
+    correo = data.get("correo")
+    password = data.get("password")
+    rol = data.get("rol", "voluntario")
+
+    if not (nombre and correo and password):
+        return jsonify({"error": "Faltan datos"}), 400
+
+    if not validar_nombre(nombre):
+        return jsonify({"error": "Nombre inválido"}), 400
+
+    if not validar_correo(correo):
+        return jsonify({"error": "Correo inválido"}), 400
+
+    if not validar_contraseña(password):
+        return jsonify({"error": "Contraseña no cumple los requisitos"}), 400
+
+    # Verificar duplicados
+    docs = usuarios_ref.where("correo", "==", correo).stream()
+    if any(docs):
+        return jsonify({"error": "El correo ya está registrado"}), 400
+
+    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+    user_id = str(random.randint(10000, 99999))
+
+    usuarios_ref.document(user_id).set({
+        "nombre": nombre,
+        "correo": correo,
+        "contraseña": hashed.decode("utf-8"),
+        "rol": rol
+    })
+
+    return jsonify({"mensaje": "Usuario registrado con éxito", "id": user_id}), 201
+
+# ----------------------------
+# Inicio de sesión
 # ----------------------------
 @app.route("/api/login", methods=["POST"])
 def login():
@@ -89,11 +149,8 @@ def login():
     if not (correo and password):
         return jsonify({"error": "Faltan datos"}), 400
 
-    if not validar_correo(correo):
-        return jsonify({"error": "Correo inválido"}), 400
-
     if esta_bloqueado(correo):
-        return jsonify({"error": "Demasiados intentos fallidos. Intenta de nuevo en 10 minutos."}), 403
+        return jsonify({"error": "Demasiados intentos fallidos. Intenta en 10 min"}), 403
 
     docs = usuarios_ref.where("correo", "==", correo).stream()
     user = None
@@ -111,7 +168,7 @@ def login():
 
     limpiar_intentos(correo)
 
-    # Crear cookie de sesión segura
+    # Crear cookie de sesión por 15 min
     respuesta = make_response(jsonify({
         "mensaje": "Login exitoso",
         "usuario": {
@@ -120,40 +177,39 @@ def login():
             "rol": user["rol"]
         }
     }))
-
     expiracion = datetime.utcnow() + timedelta(minutes=15)
     respuesta.set_cookie(
         "session_token",
-        correo,  # idealmente usar JWT
+        correo,  # temporal, idealmente JWT
         httponly=True,
-        secure=True,       # True en producción con HTTPS
-        samesite="None",   # necesario para cross-site cookies
+        secure=True,
+        samesite="None",
         expires=expiracion
     )
 
     return respuesta, 200
 
 # ----------------------------
-# VERIFICAR SESIÓN
+# Verificar sesión activa
 # ----------------------------
 @app.route("/api/verificar_sesion", methods=["GET"])
 def verificar_sesion():
-    session_token = request.cookies.get("session_token")
-    if not session_token:
-        return jsonify({"error": "Sesión expirada o no iniciada"}), 401
+    token = request.cookies.get("session_token")
+    if not token:
+        return jsonify({"error": "No autorizado"}), 401
     return jsonify({"mensaje": "Sesión activa"}), 200
 
 # ----------------------------
-# CERRAR SESIÓN
+# Cerrar sesión
 # ----------------------------
 @app.route("/api/logout", methods=["POST"])
 def logout():
-    respuesta = make_response(jsonify({"mensaje": "Sesión cerrada"}))
-    respuesta.set_cookie("session_token", "", expires=0)
-    return respuesta, 200
+    resp = make_response(jsonify({"mensaje": "Sesión cerrada"}))
+    resp.set_cookie("session_token", "", expires=0)
+    return resp, 200
 
 # ----------------------------
-# EJECUCIÓN
+# Ejecutar app
 # ----------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
