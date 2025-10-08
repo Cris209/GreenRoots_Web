@@ -14,12 +14,6 @@ from datetime import datetime, timedelta
 # ----------------------------
 app = Flask(__name__)
 
-# Ajuste de CORS: incluye el dominio de tu frontend y soporta cookies
-CORS(app, supports_credentials=True, origins=[
-    "https://greenroots-web.onrender.com",  # Cambia esto por tu dominio real
-    "http://localhost:5500"           # Para pruebas locales
-])
-
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "mi_clave_segura")
 
 firebase_key = os.getenv("FIREBASE_KEY")
@@ -33,6 +27,17 @@ db = firestore.client()
 
 usuarios_ref = db.collection("usuarios")
 
+# ----------------------------
+# CONFIGURACIÓN CORS
+# ----------------------------
+CORS(app,
+     origins=[
+         "https://greenroots-web.onrender.com",  # Reemplaza con tu dominio real
+         "http://localhost:5500"                      # Para pruebas locales
+     ],
+     supports_credentials=True
+)
+
 # Control de intentos fallidos
 intentos_fallidos = {}
 bloqueados = {}
@@ -40,13 +45,13 @@ bloqueados = {}
 # ----------------------------
 # FUNCIONES DE VALIDACIÓN
 # ----------------------------
-
 def validar_correo(correo):
     """Valida que el correo tenga un dominio válido y sin caracteres raros"""
     patron = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
     return re.match(patron, correo)
 
 def esta_bloqueado(correo):
+    """Revisa si el usuario está temporalmente bloqueado"""
     if correo in bloqueados:
         if time.time() < bloqueados[correo]:
             return True
@@ -55,15 +60,17 @@ def esta_bloqueado(correo):
     return False
 
 def registrar_intento_fallido(correo):
+    """Aumenta el contador de intentos fallidos y bloquea si supera el límite"""
     if correo not in intentos_fallidos:
         intentos_fallidos[correo] = 0
     intentos_fallidos[correo] += 1
 
     if intentos_fallidos[correo] >= 3:
-        bloqueados[correo] = time.time() + 600  # 10 min
+        bloqueados[correo] = time.time() + 600  # Bloqueo 10 min
         intentos_fallidos[correo] = 0
 
 def limpiar_intentos(correo):
+    """Limpia los intentos si el usuario inicia sesión correctamente"""
     if correo in intentos_fallidos:
         del intentos_fallidos[correo]
 
@@ -85,6 +92,7 @@ def login():
     if esta_bloqueado(correo):
         return jsonify({"error": "Demasiados intentos fallidos. Intenta de nuevo en 10 minutos."}), 403
 
+    # Buscar usuario en Firestore
     docs = usuarios_ref.where("correo", "==", correo).stream()
     user = None
     for doc in docs:
@@ -101,7 +109,7 @@ def login():
 
     limpiar_intentos(correo)
 
-    # Crear cookie de sesión (15 min)
+    # Crear cookie de sesión segura (expira en 15 min)
     respuesta = make_response(jsonify({
         "mensaje": "Login exitoso",
         "usuario": {
@@ -113,10 +121,10 @@ def login():
     expiracion = datetime.utcnow() + timedelta(minutes=15)
     respuesta.set_cookie(
         "session_token",
-        correo,  # temporal, idealmente un JWT
+        correo,  # Temporal; idealmente usar JWT en producción
         httponly=True,
-        secure=True,          # HTTPS obligatorio
-        samesite="None",      # permite cookies cross-site
+        secure=True,       # HTTPS obligatorio
+        samesite="None",
         expires=expiracion
     )
 
