@@ -16,7 +16,7 @@ app = Flask(__name__)
 
 # Ajuste de CORS: incluye el dominio de tu frontend y soporta cookies
 CORS(app, supports_credentials=True, origins=[
-    "https://tudominiofrontend.com",  # Cambia esto por tu dominio real
+    "https://greenroots-web.onrender.com",  # Cambia esto por tu dominio real
     "http://localhost:5500"           # Para pruebas locales
 ])
 
