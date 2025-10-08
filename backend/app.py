@@ -13,12 +13,16 @@ from datetime import datetime, timedelta
 # CONFIGURACIÓN BASE
 # ----------------------------
 app = Flask(__name__)
-CORS(app)
+
+# Ajuste de CORS: incluye el dominio de tu frontend y soporta cookies
+CORS(app, supports_credentials=True, origins=[
+    "https://tudominiofrontend.com",  # Cambia esto por tu dominio real
+    "http://localhost:5500"           # Para pruebas locales
+])
 
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "mi_clave_segura")
 
 firebase_key = os.getenv("FIREBASE_KEY")
-
 if not firebase_key:
     raise Exception("❌ La variable de entorno FIREBASE_KEY no está configurada")
 
@@ -43,7 +47,6 @@ def validar_correo(correo):
     return re.match(patron, correo)
 
 def esta_bloqueado(correo):
-    """Revisa si el usuario está temporalmente bloqueado"""
     if correo in bloqueados:
         if time.time() < bloqueados[correo]:
             return True
@@ -52,17 +55,15 @@ def esta_bloqueado(correo):
     return False
 
 def registrar_intento_fallido(correo):
-    """Aumenta el contador de intentos fallidos y bloquea si supera el límite"""
     if correo not in intentos_fallidos:
         intentos_fallidos[correo] = 0
     intentos_fallidos[correo] += 1
 
     if intentos_fallidos[correo] >= 3:
-        bloqueados[correo] = time.time() + 600  # 10 minutos de bloqueo
+        bloqueados[correo] = time.time() + 600  # 10 min
         intentos_fallidos[correo] = 0
 
 def limpiar_intentos(correo):
-    """Limpia los intentos si el usuario inicia sesión correctamente"""
     if correo in intentos_fallidos:
         del intentos_fallidos[correo]
 
@@ -78,15 +79,12 @@ def login():
     if not (correo and password):
         return jsonify({"error": "Faltan datos"}), 400
 
-    # Validar formato del correo
     if not validar_correo(correo):
         return jsonify({"error": "Correo inválido"}), 400
 
-    # Revisar si el usuario está bloqueado
     if esta_bloqueado(correo):
         return jsonify({"error": "Demasiados intentos fallidos. Intenta de nuevo en 10 minutos."}), 403
 
-    # Buscar usuario en Firestore
     docs = usuarios_ref.where("correo", "==", correo).stream()
     user = None
     for doc in docs:
@@ -97,14 +95,13 @@ def login():
         registrar_intento_fallido(correo)
         return jsonify({"error": "Usuario no encontrado"}), 404
 
-    # Comparar contraseñas
     if not bcrypt.checkpw(password.encode("utf-8"), user["contraseña"].encode("utf-8")):
         registrar_intento_fallido(correo)
         return jsonify({"error": "Contraseña incorrecta"}), 401
 
     limpiar_intentos(correo)
 
-    # Crear cookie de sesión segura (expira en 15 minutos)
+    # Crear cookie de sesión (15 min)
     respuesta = make_response(jsonify({
         "mensaje": "Login exitoso",
         "usuario": {
@@ -116,10 +113,10 @@ def login():
     expiracion = datetime.utcnow() + timedelta(minutes=15)
     respuesta.set_cookie(
         "session_token",
-        correo,  # temporal, idealmente aquí debería ir un JWT
+        correo,  # temporal, idealmente un JWT
         httponly=True,
-        secure=True,
-        samesite="None",
+        secure=True,          # HTTPS obligatorio
+        samesite="None",      # permite cookies cross-site
         expires=expiracion
     )
 
