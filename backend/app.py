@@ -1,95 +1,31 @@
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, initialize_app
 import bcrypt
 import random
 import os
-import json
-import re
-import time
-from datetime import datetime, timedelta
+import json 
 
-# ----------------------------
-# CONFIGURACIÓN FLASK
-# ----------------------------
+# Inicializar Flask
 app = Flask(__name__)
-CORS(app, supports_credentials=True)
+CORS(app)
 
-# ----------------------------
-# FIREBASE
-# ----------------------------
+
 firebase_key = os.getenv("FIREBASE_KEY")
+
 if not firebase_key:
-    raise Exception("❌ FIREBASE_KEY no configurada en Render")
+    raise Exception("❌ La variable de entorno FIREBASE_KEY no está configurada en Render")
 
 cred_dict = json.loads(firebase_key)
 cred = credentials.Certificate(cred_dict)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
+
 usuarios_ref = db.collection("usuarios")
 
 # ----------------------------
-# CONTROL DE INTENTOS FALLIDOS
-# ----------------------------
-intentos_fallidos = {}
-bloqueados = {}
-
-# ----------------------------
-# LISTA DE PALABRAS OBSCENAS
-# ----------------------------
-PALABRAS_OBSCENAS = ["malo1","malo2"]  # Agrega las que quieras bloquear
-
-# ----------------------------
-# FUNCIONES DE VALIDACIÓN
-# ----------------------------
-def validar_nombre(nombre):
-    if len(nombre) > 30:
-        return False
-    if any(p in nombre.lower() for p in PALABRAS_OBSCENAS):
-        return False
-    # Solo letras y espacios
-    return re.match(r"^[A-Za-zÁÉÍÓÚáéíóúÑñ ]+$", nombre) is not None
-
-def validar_contrasena(password):
-    if len(password) < 6:
-        return False
-    if not re.search(r"[A-Z]", password):
-        return False
-    if not re.search(r"[a-z]", password):
-        return False
-    if not re.search(r"\d", password):
-        return False
-    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
-        return False
-    return True
-
-def validar_correo(correo):
-    patron = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-    return re.match(patron, correo)
-
-def esta_bloqueado(correo):
-    if correo in bloqueados:
-        if time.time() < bloqueados[correo]:
-            return True
-        else:
-            del bloqueados[correo]
-    return False
-
-def registrar_intento_fallido(correo):
-    if correo not in intentos_fallidos:
-        intentos_fallidos[correo] = 0
-    intentos_fallidos[correo] += 1
-    if intentos_fallidos[correo] >= 3:
-        bloqueados[correo] = time.time() + 600  # 10 min bloqueo
-        intentos_fallidos[correo] = 0
-
-def limpiar_intentos(correo):
-    if correo in intentos_fallidos:
-        del intentos_fallidos[correo]
-
-# ----------------------------
-# REGISTRO DE USUARIO
+# Registro de usuario
 # ----------------------------
 @app.route("/api/registro", methods=["POST"])
 def registro():
@@ -97,39 +33,34 @@ def registro():
     nombre = data.get("nombre")
     correo = data.get("correo")
     password = data.get("password")
-    rol = data.get("rol", "voluntario")
+    rol = data.get("rol", "voluntario")  # por defecto voluntario
 
     if not (nombre and correo and password):
         return jsonify({"error": "Faltan datos"}), 400
 
-    if not validar_nombre(nombre):
-        return jsonify({"error": "Nombre inválido"}), 400
-
-    if not validar_contrasena(password):
-        return jsonify({"error": "Contraseña insegura"}), 400
-
-    if not validar_correo(correo):
-        return jsonify({"error": "Correo inválido"}), 400
-
-    # Verificar correo único
+    # Verificar si ya existe
     docs = usuarios_ref.where("correo", "==", correo).stream()
     if any(docs):
         return jsonify({"error": "El correo ya está registrado"}), 400
 
+    # 🔐 Encriptar contraseña con bcrypt
     hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+
+    # Crear documento con ID de 5 dígitos
     user_id = str(random.randint(10000, 99999))
 
     usuarios_ref.document(user_id).set({
         "nombre": nombre,
         "correo": correo,
-        "contraseña": hashed.decode("utf-8"),
+        "contraseña": hashed.decode("utf-8"),  # se guarda encriptada
         "rol": rol
     })
 
     return jsonify({"mensaje": "Usuario registrado con éxito", "id": user_id}), 201
 
+
 # ----------------------------
-# LOGIN
+# Inicio de sesión
 # ----------------------------
 @app.route("/api/login", methods=["POST"])
 def login():
@@ -140,9 +71,7 @@ def login():
     if not (correo and password):
         return jsonify({"error": "Faltan datos"}), 400
 
-    if esta_bloqueado(correo):
-        return jsonify({"error": "Demasiados intentos fallidos. Intenta en 10 minutos"}), 403
-
+    # Buscar usuario por correo
     docs = usuarios_ref.where("correo", "==", correo).stream()
     user = None
     for doc in docs:
@@ -150,58 +79,23 @@ def login():
         break
 
     if not user:
-        registrar_intento_fallido(correo)
         return jsonify({"error": "Usuario no encontrado"}), 404
 
+    # 🔐 Comparar contraseña ingresada con la encriptada en Firebase
     if not bcrypt.checkpw(password.encode("utf-8"), user["contraseña"].encode("utf-8")):
-        registrar_intento_fallido(correo)
         return jsonify({"error": "Contraseña incorrecta"}), 401
 
-    limpiar_intentos(correo)
-
-    # Cookie de sesión segura
-    respuesta = make_response(jsonify({
+    return jsonify({
         "mensaje": "Login exitoso",
         "usuario": {
             "nombre": user["nombre"],
             "correo": user["correo"],
             "rol": user["rol"]
         }
-    }))
-    expiracion = datetime.utcnow() + timedelta(minutes=15)
-    respuesta.set_cookie(
-        "session_token",
-        correo,
-        httponly=True,
-        secure=True,  # True en producción
-        samesite="None",
-        expires=expiracion
-    )
+    }), 200
 
-    return respuesta, 200
 
-# ----------------------------
-# VERIFICAR SESIÓN
-# ----------------------------
-@app.route("/api/verificar_sesion", methods=["GET"])
-def verificar_sesion():
-    session_token = request.cookies.get("session_token")
-    if not session_token:
-        return jsonify({"error": "Sesión no iniciada"}), 401
-    return jsonify({"mensaje": "Sesión activa"}), 200
-
-# ----------------------------
-# LOGOUT
-# ----------------------------
-@app.route("/api/logout", methods=["POST"])
-def logout():
-    respuesta = make_response(jsonify({"mensaje": "Sesión cerrada"}))
-    respuesta.set_cookie("session_token", "", expires=0)
-    return respuesta, 200
-
-# ----------------------------
-# EJECUCIÓN
-# ----------------------------
 if __name__ == "__main__":
+    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
