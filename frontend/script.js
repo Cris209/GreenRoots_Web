@@ -22,7 +22,7 @@ function eliminarUsuario() {
 document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
 
-    const correo = document.getElementById("correo").value.trim();
+    const correo = document.getElementById("email").value.trim();
     const password = document.getElementById("password").value.trim();
     const mensajeError = document.getElementById("mensaje-error");
 
