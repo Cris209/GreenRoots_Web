@@ -11,6 +11,6 @@
     "cors": "^2.8.5",
     "bcrypt": "^5.1.1",
     "firebase-admin": "^11.11.0",
-    "axios": "^1.7.2"  <-- ¡ESTA LÍNEA ES CLAVE!
+    "axios": "^1.7.2" 
   }
 }
