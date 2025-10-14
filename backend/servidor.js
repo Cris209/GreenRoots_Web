@@ -45,7 +45,6 @@ app.post("/api/registro", async (req, res) => {
         // --- PASO 2: GUARDAR PERFIL EN FIRESTORE ---
         // Usamos el UID generado por Firebase Auth como ID del documento para sincronizar.
         await db.collection("usuarios").doc(uid).set({
-            uid: uid,
             nombre: nombre,
             email: email,
             rol: rol,
