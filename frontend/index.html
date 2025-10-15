@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Green Roots - Construyendo un Futuro Verde</title>
+    
+    <link rel="manifest" href="/manifest.json">
     <link rel="stylesheet" href="home.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -36,68 +38,57 @@
 </header>
 
 <main>
-    <!-- TODO tu contenido original (sin cambios) -->
-    <!-- ... -->
-</main>
+    <section id="inicio">...</section>
+    <section id="informacion">...</section>
+    <section id="actividades">...</section>
+    <section id="voluntariado">...</section>
+    <section id="novedades">...</section>
+    </main>
 
 <footer class="footer">
-    <div class="container">
-        <div class="footer-content">
-            <div class="footer-section">
-                <div class="logo">
-                    <i class="fas fa-seedling"></i>
-                    <h3>Green Roots</h3>
-                </div>
-                <p>Construyendo un futuro verde, un árbol a la vez.</p>
-            </div>
-            <div class="footer-section">
-                <h4>Enlaces</h4>
-                <ul>
-                    <li><a href="#inicio">Inicio</a></li>
-                    <li><a href="#informacion">Información</a></li>
-                    <li><a href="#actividades">Actividades</a></li>
-                    <li><a href="#voluntariado">Voluntariado</a></li>
-                </ul>
-            </div>
-            <div class="footer-section">
-                <h4>Contacto</h4>
-                <p><i class="fas fa-envelope"></i> info@greenroots.com</p>
-                <p><i class="fas fa-phone"></i> +52 81 1234 5678</p>
-                <div class="social-links">
-                    <a href="#"><i class="fab fa-facebook"></i></a>
-                    <a href="#"><i class="fab fa-twitter"></i></a>
-                    <a href="#"><i class="fab fa-instagram"></i></a>
-                </div>
-            </div>
-        </div>
-        <div class="footer-bottom">
-            <p>&copy; 2024 Green Roots. Todos los derechos reservados.</p>
-        </div>
-    </div>
-</footer>
+    </footer>
 
+<script src="home_script.js"></script> 
 <script>
-    // ✅ Verificar si hay sesión activa
+    // ✅ 1. REGISTRO DEL SERVICE WORKER (Para PWA y Offline)
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(registration => {
+            console.log('SW registrado con éxito. Scope:', registration.scope);
+          })
+          .catch(error => {
+            console.log('Fallo al registrar SW:', error);
+          });
+      });
+    }
+
+    // ✅ 2. VERIFICACIÓN DE SESIÓN (Redirección, Límite de 15 segundos)
     const userData = sessionStorage.getItem("usuario");
+    const loginPage = "login.html"; // Redirigir al nuevo login
+
     if (!userData) {
         alert("⚠️ Debes iniciar sesión para acceder a esta página.");
-        window.location.href = "index.html"; // redirige al login
+        window.location.href = loginPage; 
     } else {
-        // Verificar expiración de sesión (15 min)
         const sessionTime = sessionStorage.getItem("sessionTime");
         const now = new Date().getTime();
-        if (!sessionTime || now - parseInt(sessionTime) > 15 * 60 * 1000) {
+        
+        // 15 SEGUNDOS DE LÍMITE DE SESIÓN
+        const FIFTEEN_SECONDS_MS = 15 * 1000; 
+        
+        if (!sessionTime || now - parseInt(sessionTime) > FIFTEEN_SECONDS_MS) {
             sessionStorage.clear();
-            alert("⏰ Tu sesión ha expirado. Por favor inicia sesión nuevamente.");
-            window.location.href = "index.html";
+            alert("⏰ Tu sesión ha expirado (15 segundos). Por favor inicia sesión nuevamente.");
+            window.location.href = loginPage;
         }
     }
 
-    // ✅ Botón de cierre de sesión
+    // ✅ 3. CIERRE DE SESIÓN
     document.getElementById("logoutBtn").addEventListener("click", () => {
         sessionStorage.clear();
         alert("Has cerrado sesión correctamente.");
-        window.location.href = "index.html";
+        window.location.href = loginPage;
     });
 </script>
 
