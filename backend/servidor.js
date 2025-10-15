@@ -19,10 +19,10 @@ const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY;
 const FIREBASE_KEY = process.env.FIREBASE_KEY;
 
 if (!FIREBASE_WEB_API_KEY) {
-    throw new Error("❌ La variable de entorno FIREBASE_WEB_API_KEY no está configurada");
+    throw new Error("La variable de entorno FIREBASE_WEB_API_KEY no está configurada");
 }
 if (!FIREBASE_KEY) {
-    throw new Error("❌ La variable de entorno FIREBASE_KEY (clave privada) no está configurada");
+    throw new Error("La variable de entorno FIREBASE_KEY (clave privada) no está configurada");
 }
 
 try {
@@ -32,16 +32,16 @@ try {
     });
 } catch (e) {
     console.error("Error al parsear FIREBASE_KEY. Asegúrate de que el JSON sea válido.", e);
-    throw new Error("❌ Error en la inicialización de Firebase Admin.");
+    throw new Error("Error en la inicialización de Firebase Admin.");
 }
 
 
 const db = admin.firestore();
 
-// 🚨 Almacenamiento temporal para el bloqueo de sesiones (Solo en memoria)
+//Almacenamiento temporal para el bloqueo de sesiones (Solo en memoria)
 const loginAttempts = {}; // { email: { count: 0, time: Date } }
 const MAX_ATTEMPTS = 3;
-const LOCKOUT_TIME_MS = 10 * 60 * 1000; // 10 minutos
+const LOCKOUT_TIME_MS = 15 * 1000; // 10 minutos
 
 // ===================================
 // FUNCIONES DE VALIDACIÓN DE SEGURIDAD
@@ -100,7 +100,7 @@ function validatePassword(password) {
 // RUTAS DE AUTENTICACIÓN
 // ===================================
 
-// 📌 Ruta: REGISTRO (Centralizada y Segura)
+//Ruta: REGISTRO (Centralizada y Segura)
 app.post("/api/registro", async (req, res) => {
     const { nombre, email, password, rol } = req.body;
 
@@ -164,7 +164,7 @@ app.post("/api/registro", async (req, res) => {
 });
 
 
-// 📌 Ruta: LOGIN (Centralizada y Bloqueo por Intentos)
+//Ruta: LOGIN (Centralizada y Bloqueo por Intentos)
 app.post("/api/login", async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -256,5 +256,5 @@ app.post("/api/login", async (req, res) => {
 // ===================================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor Express corriendo en puerto ${PORT}`);
+    console.log(`Servidor Express corriendo en puerto ${PORT}`);
 });
