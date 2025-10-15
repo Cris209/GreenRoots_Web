@@ -23,11 +23,18 @@
                 <li><a href="#informacion" class="nav-link">Información</a></li>
                 <li><a href="#actividades" class="nav-link">Actividades</a></li>
                 <li><a href="#voluntariado" class="nav-link">Voluntariado</a></li>
-                <li><a href="#novedades" class="nav-link" id="novedades-link">Novedades</a></li>
+                <li id="novedadesMenuItem"><a href="#novedades" class="nav-link" id="novedades-link">Novedades</a></li> 
             </ul>
-            <button id="logoutBtn" class="logout-btn">
+            
+            <div id="authButtons">
+                <a href="login.html" class="login-btn"><i class="fas fa-sign-in-alt"></i> Iniciar Sesión</a>
+                <a href="registro.html" class="register-btn"><i class="fas fa-user-plus"></i> Registrarse</a>
+            </div>
+            
+            <button id="logoutBtn" class="logout-btn" style="display: none;">
                 <i class="fas fa-sign-out-alt"></i> Cerrar sesión
             </button>
+            
             <div class="hamburger">
                 <span></span>
                 <span></span>
@@ -38,11 +45,6 @@
 </header>
 
 <main>
-    <section id="inicio">...</section>
-    <section id="informacion">...</section>
-    <section id="actividades">...</section>
-    <section id="voluntariado">...</section>
-    <section id="novedades">...</section>
     </main>
 
 <footer class="footer">
@@ -50,45 +52,61 @@
 
 <script src="home_script.js"></script> 
 <script>
-    // ✅ 1. REGISTRO DEL SERVICE WORKER (Para PWA y Offline)
+    const loginPage = "login.html";
+
+    // 1. REGISTRO DEL SERVICE WORKER (Mantener)
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js')
-          .then(registration => {
-            console.log('SW registrado con éxito. Scope:', registration.scope);
-          })
-          .catch(error => {
-            console.log('Fallo al registrar SW:', error);
-          });
+          .then(registration => console.log('SW registrado.'))
+          .catch(error => console.log('Fallo al registrar SW:', error));
       });
     }
 
-    // ✅ 2. VERIFICACIÓN DE SESIÓN (Redirección, Límite de 15 segundos)
-    const userData = sessionStorage.getItem("usuario");
-    const loginPage = "login.html"; // Redirigir al nuevo login
+    // 2. LÓGICA DE SESIÓN Y VISIBILIDAD DE BOTONES
+    function checkSessionAndRenderUI() {
+        const userData = sessionStorage.getItem("usuario");
+        const authButtons = document.getElementById("authButtons");
+        const logoutBtn = document.getElementById("logoutBtn");
+        const novedadesMenuItem = document.getElementById("novedadesMenuItem");
 
-    if (!userData) {
-        alert("⚠️ Debes iniciar sesión para acceder a esta página.");
-        window.location.href = loginPage; 
-    } else {
-        const sessionTime = sessionStorage.getItem("sessionTime");
-        const now = new Date().getTime();
-        
-        // 15 SEGUNDOS DE LÍMITE DE SESIÓN
-        const FIFTEEN_SECONDS_MS = 15 * 1000; 
-        
-        if (!sessionTime || now - parseInt(sessionTime) > FIFTEEN_SECONDS_MS) {
-            sessionStorage.clear();
-            alert("⏰ Tu sesión ha expirado (15 segundos). Por favor inicia sesión nuevamente.");
-            window.location.href = loginPage;
+        if (userData) {
+            // Usuario LOGEADO
+            authButtons.style.display = 'none';
+            logoutBtn.style.display = 'inline-block';
+            novedadesMenuItem.style.display = 'list-item'; // Mostrar Novedades
+            
+            // 2.1. VERIFICAR EXPIRACIÓN (15 SEGUNDOS)
+            const sessionTime = sessionStorage.getItem("sessionTime");
+            const now = new Date().getTime();
+            const FIFTEEN_SECONDS_MS = 15 * 1000; 
+            
+            if (!sessionTime || now - parseInt(sessionTime) > FIFTEEN_SECONDS_MS) {
+                // Sesión expirada
+                sessionStorage.clear();
+                alert("Tu sesión ha expirado. Por favor inicia sesión nuevamente.");
+                // Forzar la recarga para que el UI se actualice a "deslogeado"
+                window.location.reload(); 
+            }
+
+        } else {
+            // Usuario NO LOGEADO
+            authButtons.style.display = 'flex'; // Mostrar Login/Registro
+            logoutBtn.style.display = 'none';
+            novedadesMenuItem.style.display = 'none'; // Ocultar Novedades
+            
+            // Aquí ya NO hay redirección forzada a login.html
         }
     }
+    
+    // Inicializar la verificación al cargar la página
+    document.addEventListener('DOMContentLoaded', checkSessionAndRenderUI);
 
-    // ✅ 3. CIERRE DE SESIÓN
+    // 3. CIERRE DE SESIÓN
     document.getElementById("logoutBtn").addEventListener("click", () => {
         sessionStorage.clear();
         alert("Has cerrado sesión correctamente.");
-        window.location.href = loginPage;
+        window.location.href = "index.html"; // Recargar index.html para actualizar la UI
     });
 </script>
 
