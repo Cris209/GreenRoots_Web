@@ -1,52 +1,67 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Registro - Green Roots</title>
-  <link rel="stylesheet" href="style.css">
-</head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro de Usuario - Green Roots</title>
+    
+    <link rel="manifest" href="/manifest.json">
+
+    <script>
+        // Si el usuario ya tiene datos de sesión, redirige a HOME (index.html).
+        if (sessionStorage.getItem("usuario")) {
+            window.location.href = "index.html";
+        }
+    </script>
+    
+    </head>
 <body>
-  <div class="login-container">
-    
-    <img src="Green_Roots.jpg" alt="Logo Green Roots" class="logo">
-    
-    <h1 class="title">GREEN ROOTS</h1>
-    <p class="subtitle">Únete a la reforestación</p>
-    
     <form id="registroForm">
-      <div class="input-group">
-        <label for="nombre">Nombre</label>
-        <input type="text" id="nombre" placeholder="Ingresa tu nombre" required>
-      </div>
-
-      <div class="input-group">
-        <label for="email">Correo</label>
-        <input type="email" id="email" placeholder="Ingresa tu correo" required>
-      </div>
-
-      <div class="input-group">
-        <label for="password">Contraseña</label>
-        <input type="password" id="password" placeholder="Crea una contraseña" required>
-      </div>
-
-      <div class="input-group">
-        <label for="rol">Rol</label>
-        <select id="rol" required>
-          <option value="voluntario">Voluntario</option>
-          <option value="administrador">Administrador</option>
-          <option value="gobierno">Gobierno</option>
-        </select>
-      </div>
-
-      <button type="submit" class="btn">Registrarse</button>
-    </form>
+        </form>
     
-    <p class="footer-text">¿Ya tienes cuenta? 
-      <a href="index.html">Inicia sesión</a>
-    </p>
-  </div>
+    <script>
+        // Script de manejo de Registro (DEBE estar actualizado para llamar al nuevo backend)
+        const API_URL = "https://greenroots-web.onrender.com/api"; 
 
-  <script src="registro.js"></script>
+        document.getElementById("registroForm")?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const nombre = document.getElementById("nombre").value.trim();
+            const email = document.getElementById("email").value.trim();
+            const password = document.getElementById("password").value.trim();
+            const rol = document.getElementById("rol").value.trim();
+            const mensajeStatus = document.getElementById("mensaje-status"); // Asumiendo que tienes un elemento para el status
+
+            mensajeStatus.textContent = "";
+
+            try {
+                const res = await fetch(`${API_URL}/registro`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ nombre, email, password, rol })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    const mensaje = data.mensaje || "Error desconocido durante el registro.";
+                    mensajeStatus.textContent = mensaje;
+                    mensajeStatus.style.color = "red";
+                    alert("Error de Registro: " + mensaje);
+                    return;
+                }
+
+                // REGISTRO EXITOSO
+                alert(data.mensaje + "\nAhora puedes iniciar sesión.");
+                window.location.href = "login.html"; // Redirigir al Login
+
+            } catch (err) {
+                console.error("Error de conexión:", err);
+                mensajeStatus.textContent = "Error de conexión con el servidor. Intenta nuevamente.";
+                mensajeStatus.style.color = "red";
+                alert("Error de Conexión: No se pudo conectar con el servidor.");
+            }
+        });
+    </script>
 </body>
 </html>
