@@ -1,0 +1,21 @@
+{
+  "name": "Green Roots",
+  "short_name": "G. Roots",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2ecc71",
+  "description": "Plataforma de reforestación Green Roots.",
+  "icons": [
+    {
+      "src": "/Green_Roots.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "/Green_Roots.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}
