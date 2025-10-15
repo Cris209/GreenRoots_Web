@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iniciar Sesión - Green Roots</title>
+    
+    <link rel="manifest" href="/manifest.json">
+    
+    <script>
+        // Si el usuario ya tiene datos de sesión, redirige a HOME (index.html).
+        if (sessionStorage.getItem("usuario")) {
+            window.location.href = "index.html";
+        }
+    </script>
+    
+    <link rel="stylesheet" href="index.css"> </head>
+<body>
+    <form id="loginForm">
+        </form>
+    
+    <p id="mensaje-error" class="error-message"></p>
+    
+    <script>
+        // Script de manejo de Login (DEBE estar actualizado para llamar al nuevo backend)
+        const API_URL = "https://greenroots-web.onrender.com/api"; // Asegúrate de que esta URL sea correcta
+
+        document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const email = document.getElementById("email").value.trim();
+            const password = document.getElementById("password").value.trim();
+            const mensajeError = document.getElementById("mensaje-error");
+
+            mensajeError.textContent = "";
+
+            try {
+                const res = await fetch(`${API_URL}/login`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    const mensaje = data.mensaje || "Error desconocido al iniciar sesión.";
+                    mensajeError.textContent = mensaje;
+                    alert("Error de inicio de sesión: " + mensaje);
+                    return;
+                }
+
+                // INICIO DE SESIÓN EXITOSO
+                sessionStorage.setItem("usuario", JSON.stringify(data.usuario));
+                sessionStorage.setItem("sessionTime", new Date().getTime().toString());
+
+                alert(`¡Bienvenido, ${data.usuario.nombre}! Sesión iniciada.`);
+                window.location.href = "index.html"; // Redirigir a la nueva HOME (index.html)
+
+            } catch (err) {
+                console.error("Error de conexión:", err);
+                mensajeError.textContent = "Error de conexión con el servidor. Intenta nuevamente.";
+                alert("Error de Conexión: No se pudo conectar con el servidor.");
+            }
+        });
+    </script>
+</body>
+</html>
