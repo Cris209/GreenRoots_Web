@@ -10,8 +10,9 @@
     <link rel="stylesheet" href="/frontend/style.css"> 
     
     <script>
-        if (sessionStorage.getItem("usuario")) {
-            // Si el usuario ya tiene datos de sesión, redirige a HOME (index.html).
+        //  CORRECCIÓN CLAVE: LEER DESDE localStorage para persistencia
+        if (localStorage.getItem("usuario")) { 
+            // Si el usuario ya tiene datos de sesión (persistente), redirige a HOME.
             window.location.href = "index.html";
         }
     </script>
@@ -59,8 +60,8 @@
             mensajeError.textContent = "";
 
             if (!email || !password) {
-                 mensajeError.textContent = "Por favor, ingresa correo y contraseña.";
-                 return;
+                mensajeError.textContent = "Por favor, ingresa correo y contraseña.";
+                return;
             }
 
             try {
@@ -73,7 +74,7 @@
                 const data = await res.json();
 
                 if (!res.ok) {
-                    // Muestra el mensaje de error del backend (ej. credenciales incorrectas, bloqueo 429)
+                    // Muestra el mensaje de error del backend
                     const mensaje = data.mensaje || "Error desconocido al iniciar sesión.";
                     mensajeError.textContent = mensaje;
                     alert("Error de inicio de sesión: " + mensaje);
@@ -81,10 +82,11 @@
                 }
 
                 // INICIO DE SESIÓN EXITOSO
-                sessionStorage.setItem("usuario", JSON.stringify(data.usuario));
+                //  ESTO YA ESTABA CORRECTO: Guarda en localStorage para PERSISTENCIA.
+                localStorage.setItem("usuario", JSON.stringify(data.usuario));
                 
-                // Marca el tiempo de inicio de sesión para control de expiración (15 segundos)
-                sessionStorage.setItem("sessionTime", new Date().getTime().toString());
+                // Marca el tiempo de inicio de sesión para control de expiración.
+                localStorage.setItem("sessionTime", new Date().getTime().toString());
 
                 alert(`¡Bienvenido, ${data.usuario.nombre}! Sesión iniciada.`);
                 window.location.href = "index.html"; // Redirigir a la HOME
