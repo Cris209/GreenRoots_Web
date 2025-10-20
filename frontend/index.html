@@ -16,7 +16,7 @@
     <nav class="navbar">
         <div class="nav-container">
             <div class="logo">
-                <img src="/frontend/Green_Roots.jpg" alt="Green Roots Logo" class="logo-img">
+                <img src="/frontend/Green_Roots1.png" alt="Green Roots Logo" class="logo-img">
                 <h1>Green Roots</h1>
             </div>
             <ul class="nav-menu">
@@ -320,7 +320,7 @@
     }
     .modal-icon {
         font-size: 3rem;
-        color: #f39c12; /* Color de advertencia */
+        color: #f39c12; 
         margin-bottom: 15px;
     }
     .modal-btn {
@@ -348,19 +348,19 @@
     }
 </style>
 
-<script src="/frontend/home_script.js"></script> 
+<script src="/frontend/home.js"></script> 
 
 <script>
     const loginPage = "login.html";
 
     // ----------------------------------------------------
-    // CONFIGURACIÓN DE SESIÓN MEJORADA
+    // CONFIGURACIÓN DE SESIÓN PERSISTENTE (localStorage)
     // ----------------------------------------------------
 
     // CONFIGURACIÓN DE TIEMPOS (en milisegundos)
-    const MODAL_TIMEOUT_MS = 10 * 1000;    // Tiempo que el modal espera la respuesta (10 segundos)
-    const WARNING_TIME_MS = 20 * 1000;     // Mostrar modal a los 20 segundos
-    const SESSION_LIFESPAN_MS = WARNING_TIME_MS + MODAL_TIMEOUT_MS; // Límite total (30 segundos)
+    const MODAL_TIMEOUT_MS = 10 * 1000;    
+    const WARNING_TIME_MS = 20 * 1000;     
+    const SESSION_LIFESPAN_MS = WARNING_TIME_MS + MODAL_TIMEOUT_MS;
     
 
     // Referencias a la modal y botones
@@ -369,33 +369,30 @@
     const closeSessionBtn = document.getElementById('closeSessionBtn');
     const closeSpan = sessionModal.querySelector('.close-btn');
 
-    let expirationTimer; // Timer para el cierre forzado después del modal
+    let expirationTimer; 
 
     function closeSessionAndRedirect() {
-        // Limpiamos el timer por si acaso
         clearTimeout(expirationTimer); 
-        sessionStorage.clear();
-        alert("⏰ Tu sesión ha expirado o ha sido cerrada.");
+        // CAMBIO: Usamos localStorage.clear() 
+        localStorage.clear();
+        alert("Tu sesión ha expirado o ha sido cerrada.");
         window.location.href = loginPage;
     }
 
     function renewSession() {
-        // 1. Limpia el timer de expiración pendiente
         clearTimeout(expirationTimer);
         
-        // 2. Actualiza el tiempo de la sesión
-        sessionStorage.setItem("sessionTime", new Date().getTime().toString());
+        // CAMBIO: Usamos localStorage.setItem para actualizar el tiempo
+        localStorage.setItem("sessionTime", new Date().getTime().toString());
         
-        // 3. Oculta el modal
         sessionModal.style.display = 'none';
-
-        // 4. Reinicia la verificación
         checkSessionExpiration(); 
     }
 
 
     function checkSessionExpiration() {
-        const sessionTime = sessionStorage.getItem("sessionTime");
+        // CAMBIO: Leemos el tiempo de localStorage
+        const sessionTime = localStorage.getItem("sessionTime");
         const now = new Date().getTime();
         
         if (!sessionTime) return; 
@@ -404,24 +401,22 @@
 
         // 1. SESIÓN EXPIRADA
         if (elapsedTime >= SESSION_LIFESPAN_MS) {
-            if (sessionStorage.getItem("usuario")) {
+            // CAMBIO: Verificamos si hay usuario en localStorage
+            if (localStorage.getItem("usuario")) {
                 closeSessionAndRedirect();
             }
         } 
         // 2. TIEMPO DE ADVERTENCIA ALCANZADO: Mostrar modal
         else if (elapsedTime >= WARNING_TIME_MS && elapsedTime < SESSION_LIFESPAN_MS) {
             
-            // Solo mostramos el modal si no está visible ya
             if (sessionModal.style.display !== 'flex') {
                 sessionModal.style.display = 'flex';
                 
-                // Establecer un timer que cierre la sesión *exactamente* en 10 segundos
                 expirationTimer = setTimeout(() => {
-                    // Verificamos si la modal sigue visible (si el usuario no ha respondido)
                     if (sessionModal.style.display === 'flex') {
                         closeSessionAndRedirect();
                     }
-                }, MODAL_TIMEOUT_MS); // Cierre forzado después de 10 segundos
+                }, MODAL_TIMEOUT_MS); 
             }
         }
     }
@@ -431,7 +426,8 @@
     // ----------------------------------------------------
 
     function checkSessionAndRenderUI() {
-        const userData = sessionStorage.getItem("usuario");
+        // 🚨 CAMBIO: Leemos el usuario de localStorage
+        const userData = localStorage.getItem("usuario");
         const authButtons = document.getElementById("authButtons");
         const logoutBtn = document.getElementById("logoutBtn");
         const novedadesMenuItem = document.getElementById("novedadesMenuItem");
@@ -442,39 +438,43 @@
             logoutBtn.style.display = 'inline-block';
             novedadesMenuItem.style.display = 'list-item'; 
             
-            // Ejecutar la verificación periódicamente para chequear la expiración
+            // Iniciar la verificación periódica de expiración
             setInterval(checkSessionExpiration, 500);
 
         } else {
-            // Usuario NO LOGEADO
+            // Usuario NO LOGEADO: Redirigir si no hay sesión
             authButtons.style.display = 'flex'; 
             logoutBtn.style.display = 'none';
             novedadesMenuItem.style.display = 'none'; 
+            
+            // Si no hay datos de sesión, nos aseguramos de que no esté en localStorage
+            // (Esta línea es opcional pero buena práctica de limpieza)
+            localStorage.clear();
         }
     }
 
     // Event Listeners para la Modal
     keepSessionBtn.addEventListener('click', renewSession);
     closeSessionBtn.addEventListener('click', closeSessionAndRedirect);
-    closeSpan.addEventListener('click', closeSessionAndRedirect); // Cierra si hace clic en 'x'
+    closeSpan.addEventListener('click', closeSessionAndRedirect); 
 
     // Inicializar la verificación al cargar la página
     document.addEventListener('DOMContentLoaded', checkSessionAndRenderUI);
 
 
-    // ✅ CIERRE DE SESIÓN MANUAL
+    // CIERRE DE SESIÓN MANUAL
     document.getElementById("logoutBtn").addEventListener("click", () => {
         clearTimeout(expirationTimer); 
-        sessionStorage.clear();
+        // CAMBIO: Usamos localStorage.clear() para cerrar la sesión
+        localStorage.clear();
         alert("Has cerrado sesión correctamente.");
         window.location.href = loginPage;
     });
 
-    // ✅ REGISTRO DEL SERVICE WORKER (PWA)
+    // REGISTRO DEL SERVICE WORKER (PWA)
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        // sw.js debe estar en la raíz del servidor
-        navigator.serviceWorker.register('/sw.js') 
+        navigator.serviceWorker.register('/frontend/sw.js') 
           .then(registration => {
             console.log('SW registrado con éxito. Scope:', registration.scope);
           })
