@@ -6,21 +6,20 @@
     <title>Iniciar Sesión - Green Roots</title>
     
     <link rel="manifest" href="/frontend/manifest.json">
-    
     <link rel="stylesheet" href="/frontend/style.css"> 
     
     <script>
-        //  CORRECCIÓN CLAVE: LEER DESDE localStorage para persistencia
-        if (localStorage.getItem("usuario")) { 
-            // Si el usuario ya tiene datos de sesión (persistente), redirige a HOME.
-            window.location.href = "index.html";
+        // Persistencia: Si hay una sesión activa, redirige inmediatamente al index.html
+        // (donde index.html le permite quedarse o le muestra su dashboard si usa el enlace "Mi Panel").
+        if (localStorage.getItem("usuario")) {
+            window.location.href = "index.html"; 
         }
     </script>
 </head>
 <body>
 
     <div class="login-container">
-        <img src="/frontend/Green_Roots.jpg" alt="Logo Green Roots" class="logo">
+        <img src="/frontend/Green_Roots1.png" alt="Logo Green Roots" class="logo">
         
         <h2 class="title">Bienvenido de Nuevo</h2>
         <p class="subtitle">Ingresa tus credenciales para acceder a la plataforma.</p>
@@ -47,7 +46,7 @@
     </div>
     
     <script>
-        // La URL de tu Backend desplegado en Render
+        // La URL de tu Backend desplegado
         const API_URL = "https://greenroots-web.onrender.com/api"; 
 
         document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
@@ -60,8 +59,8 @@
             mensajeError.textContent = "";
 
             if (!email || !password) {
-                mensajeError.textContent = "Por favor, ingresa correo y contraseña.";
-                return;
+                 mensajeError.textContent = "Por favor, ingresa correo y contraseña.";
+                 return;
             }
 
             try {
@@ -74,29 +73,66 @@
                 const data = await res.json();
 
                 if (!res.ok) {
-                    // Muestra el mensaje de error del backend
+                    // Muestra el mensaje de error del backend (ej. credenciales incorrectas)
                     const mensaje = data.mensaje || "Error desconocido al iniciar sesión.";
                     mensajeError.textContent = mensaje;
+                    mensajeError.style.color = "red";
                     alert("Error de inicio de sesión: " + mensaje);
                     return;
                 }
 
                 // INICIO DE SESIÓN EXITOSO
-                //  ESTO YA ESTABA CORRECTO: Guarda en localStorage para PERSISTENCIA.
-                localStorage.setItem("usuario", JSON.stringify(data.usuario));
-                
-                // Marca el tiempo de inicio de sesión para control de expiración.
+                const userData = data.usuario; 
+
+                // 1. Guardar la sesión persistente en localStorage
+                localStorage.setItem("usuario", JSON.stringify(userData));
                 localStorage.setItem("sessionTime", new Date().getTime().toString());
 
-                alert(`¡Bienvenido, ${data.usuario.nombre}! Sesión iniciada.`);
-                window.location.href = "index.html"; // Redirigir a la HOME
+                alert(`¡Bienvenido, ${userData.nombre}! Sesión iniciada como ${userData.rol}.`);
+                
+                // 2. LÓGICA DE REDIRECCIÓN POR ROL (La parte clave que faltaba o estaba mal) 🚨
+                const rolUsuario = userData.rol ? userData.rol.toLowerCase() : '';
+                let redirectUrl = "index.html"; // Fallback por si el rol es desconocido
+
+                switch (rolUsuario) {
+                    case 'voluntario':
+                        redirectUrl = "voluntariado.html"; // Redirección al dashboard de Voluntario
+                        break;
+                    case 'gobierno':
+                        redirectUrl = "dashboard_gobierno.html"; // Redirección al dashboard de Gobierno
+                        break;
+                    case 'administrador':
+                        redirectUrl = "admin_panel.html"; // Redirección al dashboard de Administrador
+                        break;
+                    default:
+                        console.warn(`Rol desconocido: ${rolUsuario}. Redirigiendo a index.html.`);
+                        break;
+                }
+
+                // Ejecutar la redirección al dashboard específico del rol
+                // Usamos replace() para que la página de login no quede en el historial
+                window.location.replace(redirectUrl); 
                 
             } catch (err) {
                 console.error("Error de conexión:", err);
                 mensajeError.textContent = "Error de conexión con el servidor. Intenta nuevamente.";
+                mensajeError.style.color = "red";
                 alert("Error de Conexión: No se pudo conectar con el servidor.");
             }
         });
+        
+        // REGISTRO DEL SERVICE WORKER (PWA)
+        if ('serviceWorker' in navigator) {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/frontend/sw.js') 
+              .then(registration => {
+                console.log('SW registrado con éxito. Scope:', registration.scope);
+              })
+              .catch(error => {
+                console.error('Fallo al registrar SW:', error);
+              });
+          });
+        }
     </script>
 </body>
 </html>
