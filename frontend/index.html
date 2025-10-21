@@ -20,7 +20,7 @@
                 <h1>Green Roots</h1>
             </div>
             <ul class="nav-menu">
-                <li><a href="#inicio" class="nav-link">Inicio</a></li>
+                <li><a href="index.html" class="nav-link">Inicio</a></li>
                 <li><a href="#informacion" class="nav-link">Información</a></li>
                 <li><a href="#actividades" class="nav-link">Actividades</a></li>
                 <li><a href="#voluntariado" class="nav-link">Voluntariado</a></li>
@@ -28,6 +28,10 @@
                 <li id="novedadesMenuItem" style="display: none;">
                     <a href="#novedades" class="nav-link" id="novedades-link">Novedades</a>
                 </li> 
+                
+                <li id="dashboardMenuItem" style="display: none;">
+                    <a href="#" class="nav-link" id="dashboard-link">Mi Panel</a>
+                </li>
             </ul>
             
             <div id="authButtons">
@@ -296,59 +300,21 @@
 
 <style>
     .modal {
-        position: fixed;
-        z-index: 1000;
-        left: 0;
-        top: 0;
-        width: 100%;
-        height: 100%;
-        overflow: auto;
-        background-color: rgba(0, 0, 0, 0.6);
-        display: flex;
-        justify-content: center;
-        align-items: center;
+        position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto;
+        background-color: rgba(0, 0, 0, 0.6); display: flex; justify-content: center; align-items: center;
     }
     .modal-content {
-        background-color: #fefefe;
-        margin: 15% auto; 
-        padding: 30px;
-        border-radius: 10px;
-        width: 80%;
-        max-width: 400px;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-        text-align: center;
+        background-color: #fefefe; padding: 30px; border-radius: 10px; width: 80%;
+        max-width: 400px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3); text-align: center;
     }
-    .modal-icon {
-        font-size: 3rem;
-        color: #f39c12; 
-        margin-bottom: 15px;
-    }
+    .modal-icon { font-size: 3rem; color: #f39c12; margin-bottom: 15px; }
     .modal-btn {
-        padding: 10px 20px;
-        margin: 10px 5px;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
-        font-weight: bold;
+        padding: 10px 20px; margin: 10px 5px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;
     }
-    .modal-btn.confirm {
-        background-color: #2ecc71;
-        color: white;
-    }
-    .modal-btn.cancel {
-        background-color: #e74c3c;
-        color: white;
-    }
-    .close-btn {
-        color: #aaa;
-        float: right;
-        font-size: 28px;
-        font-weight: bold;
-        cursor: pointer;
-    }
+    .modal-btn.confirm { background-color: #2ecc71; color: white; }
+    .modal-btn.cancel { background-color: #e74c3c; color: white; }
+    .close-btn { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
 </style>
-
-<script src="/frontend/home.js"></script> 
 
 <script>
     const loginPage = "login.html";
@@ -356,14 +322,10 @@
     // ----------------------------------------------------
     // CONFIGURACIÓN DE SESIÓN PERSISTENTE (localStorage)
     // ----------------------------------------------------
-
-    // CONFIGURACIÓN DE TIEMPOS (en milisegundos)
     const MODAL_TIMEOUT_MS = 10 * 1000;    
     const WARNING_TIME_MS = 20 * 1000;     
     const SESSION_LIFESPAN_MS = WARNING_TIME_MS + MODAL_TIMEOUT_MS;
     
-
-    // Referencias a la modal y botones
     const sessionModal = document.getElementById('sessionModal');
     const keepSessionBtn = document.getElementById('keepSessionBtn');
     const closeSessionBtn = document.getElementById('closeSessionBtn');
@@ -373,25 +335,19 @@
 
     function closeSessionAndRedirect() {
         clearTimeout(expirationTimer); 
-        // CAMBIO: Usamos localStorage.clear() 
         localStorage.clear();
         alert("Tu sesión ha expirado o ha sido cerrada.");
-        window.location.href = loginPage;
+        window.location.replace(loginPage); 
     }
 
     function renewSession() {
         clearTimeout(expirationTimer);
-        
-        // CAMBIO: Usamos localStorage.setItem para actualizar el tiempo
         localStorage.setItem("sessionTime", new Date().getTime().toString());
-        
         sessionModal.style.display = 'none';
         checkSessionExpiration(); 
     }
 
-
     function checkSessionExpiration() {
-        // CAMBIO: Leemos el tiempo de localStorage
         const sessionTime = localStorage.getItem("sessionTime");
         const now = new Date().getTime();
         
@@ -399,14 +355,11 @@
 
         const elapsedTime = now - parseInt(sessionTime);
 
-        // 1. SESIÓN EXPIRADA
         if (elapsedTime >= SESSION_LIFESPAN_MS) {
-            // CAMBIO: Verificamos si hay usuario en localStorage
             if (localStorage.getItem("usuario")) {
                 closeSessionAndRedirect();
             }
         } 
-        // 2. TIEMPO DE ADVERTENCIA ALCANZADO: Mostrar modal
         else if (elapsedTime >= WARNING_TIME_MS && elapsedTime < SESSION_LIFESPAN_MS) {
             
             if (sessionModal.style.display !== 'flex') {
@@ -422,38 +375,57 @@
     }
 
     // ----------------------------------------------------
-    // LÓGICA PRINCIPAL Y LISTENERS
+    // LÓGICA PRINCIPAL: VERIFICACIÓN Y RENDERIZADO UI
     // ----------------------------------------------------
 
-    function checkSessionAndRenderUI() {
-        // 🚨 CAMBIO: Leemos el usuario de localStorage
-        const userData = localStorage.getItem("usuario");
-        const authButtons = document.getElementById("authButtons");
-        const logoutBtn = document.getElementById("logoutBtn");
-        const novedadesMenuItem = document.getElementById("novedadesMenuItem");
-
-        if (userData) {
-            // Usuario LOGEADO: Mostrar elementos y empezar a revisar la sesión cada 500ms
-            authButtons.style.display = 'none';
-            logoutBtn.style.display = 'inline-block';
-            novedadesMenuItem.style.display = 'list-item'; 
-            
-            // Iniciar la verificación periódica de expiración
-            setInterval(checkSessionExpiration, 500);
-
-        } else {
-            // Usuario NO LOGEADO: Redirigir si no hay sesión
-            authButtons.style.display = 'flex'; 
-            logoutBtn.style.display = 'none';
-            novedadesMenuItem.style.display = 'none'; 
-            
-            // Si no hay datos de sesión, nos aseguramos de que no esté en localStorage
-            // (Esta línea es opcional pero buena práctica de limpieza)
-            localStorage.clear();
+    function getDashboardUrl(rol) {
+        switch (rol.toLowerCase()) {
+            case 'voluntario':
+                return "voluntariado.html";
+            case 'gobierno':
+                return "dashboard_gobierno.html";
+            case 'administrador':
+                return "admin_panel.html";
+            default:
+                return "index.html"; 
         }
     }
 
-    // Event Listeners para la Modal
+    function checkSessionAndRenderUI() {
+        const userDataJSON = localStorage.getItem("usuario");
+        const authButtons = document.getElementById("authButtons");
+        const logoutBtn = document.getElementById("logoutBtn");
+        const novedadesMenuItem = document.getElementById("novedadesMenuItem");
+        const dashboardMenuItem = document.getElementById("dashboardMenuItem");
+        const dashboardLink = document.getElementById("dashboard-link");
+
+        if (userDataJSON) {
+            // Usuario LOGEADO:
+            const userData = JSON.parse(userDataJSON);
+            const rolUsuario = userData.rol ? userData.rol.toLowerCase() : '';
+            
+            // Renderizamos la UI para usuarios logeados
+            authButtons.style.display = 'none';
+            logoutBtn.style.display = 'inline-block';
+            novedadesMenuItem.style.display = 'list-item'; 
+            dashboardMenuItem.style.display = 'list-item'; // Mostrar el enlace a "Mi Panel"
+
+            // Asignamos la URL correcta al enlace "Mi Panel"
+            dashboardLink.href = getDashboardUrl(rolUsuario);
+            
+            // Iniciamos la verificación periódica de expiración
+            setInterval(checkSessionExpiration, 500);
+
+        } else {
+            // Usuario NO LOGEADO: Mostrar botones de autenticación
+            authButtons.style.display = 'flex'; 
+            logoutBtn.style.display = 'none';
+            novedadesMenuItem.style.display = 'none'; 
+            dashboardMenuItem.style.display = 'none'; // Ocultar "Mi Panel"
+        }
+    }
+
+    // Event Listeners
     keepSessionBtn.addEventListener('click', renewSession);
     closeSessionBtn.addEventListener('click', closeSessionAndRedirect);
     closeSpan.addEventListener('click', closeSessionAndRedirect); 
@@ -461,14 +433,12 @@
     // Inicializar la verificación al cargar la página
     document.addEventListener('DOMContentLoaded', checkSessionAndRenderUI);
 
-
     // CIERRE DE SESIÓN MANUAL
     document.getElementById("logoutBtn").addEventListener("click", () => {
         clearTimeout(expirationTimer); 
-        // CAMBIO: Usamos localStorage.clear() para cerrar la sesión
         localStorage.clear();
         alert("Has cerrado sesión correctamente.");
-        window.location.href = loginPage;
+        window.location.replace(loginPage);
     });
 
     // REGISTRO DEL SERVICE WORKER (PWA)
