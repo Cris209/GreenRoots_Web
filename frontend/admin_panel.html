@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Panel - Administrador</title>
+    </head>
+<body>
+    <header>
+        <h1>Panel de Administrador ⚙️</h1>
+        <p>Tu única ruta accesible (además de index.html)</p>
+    </header>
+    <main>
+        <section>
+            <h2>Gestión de Usuarios y Contenido</h2>
+            </section>
+        <a href="index.html">Volver a la Página Principal</a>
+    </main>
+    <script>
+        function protectRoute(allowedRoles) {
+    const userDataJSON = localStorage.getItem("usuario");
+    const loginPage = "login.html";
+    const homePage = "index.html"; // Página principal de fallback
+
+    // 1. Si no hay sesión, forzar inicio de sesión
+    if (!userDataJSON) {
+        window.location.replace(loginPage);
+        return false;
+    }
+
+    const userData = JSON.parse(userDataJSON);
+    const userRol = userData.rol ? userData.rol.toLowerCase() : '';
+
+    // 2. Si el rol NO está permitido, redirigir a la página principal (index.html)
+    if (!allowedRoles.includes(userRol)) {
+        alert("Acceso denegado. No tienes permisos para esta área.");
+        window.location.replace(homePage);
+        return false;
+    }
+    
+    // 3. Si el rol es correcto, la ejecución del script continúa
+    return true;
+}
+        // ... (función protectRoute) ...
+
+        // 🚨 Llama a la función de protección:
+        const isAllowed = protectRoute(['administrador']);
+        
+        if (isAllowed) {
+            console.log("Acceso de administrador concedido.");
+            // Aquí iría tu lógica de carga de datos para el administrador
+        }
+    </script>
+</body>
+</html>
