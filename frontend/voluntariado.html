@@ -2,55 +2,172 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Dashboard - Voluntario</title>
-    </head>
-<body>
-    <header>
-        <h1>Panel de Voluntario 🌳</h1>
-        <p>Tu única ruta accesible (además de index.html)</p>
-    </header>
-    <main>
-        <section>
-            <h2>Mis Próximas Jornadas</h2>
-            </section>
-        <a href="index.html">Volver a la Página Principal</a>
-    </main>
-    <script>
-        function protectRoute(allowedRoles) {
-    const userDataJSON = localStorage.getItem("usuario");
-    const loginPage = "login.html";
-    const homePage = "index.html"; // Página principal de fallback
-
-    // 1. Si no hay sesión, forzar inicio de sesión
-    if (!userDataJSON) {
-        window.location.replace(loginPage);
-        return false;
-    }
-
-    const userData = JSON.parse(userDataJSON);
-    const userRol = userData.rol ? userData.rol.toLowerCase() : '';
-
-    // 2. Si el rol NO está permitido, redirigir a la página principal (index.html)
-    if (!allowedRoles.includes(userRol)) {
-        alert("Acceso denegado. No tienes permisos para esta área.");
-        window.location.replace(homePage);
-        return false;
-    }
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Voluntario - Green Roots</title>
     
-    // 3. Si el rol es correcto, la ejecución del script continúa
-    return true;
-}
-        // ... (función protectRoute) ...
+    <link rel="stylesheet" href="/frontend/home.css"> 
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <script>
+        // Función de Protección de Ruta (debe estar al inicio de cada dashboard)
+        function protectRoute(allowedRoles) {
+            const userDataJSON = localStorage.getItem("usuario");
+            const loginPage = "login.html";
+            const homePage = "index.html"; // Redirige a la página principal si el rol es incorrecto
 
-        //  Llama a la función de protección:
+            // 1. Si no hay sesión, forzar inicio de sesión
+            if (!userDataJSON) {
+                window.location.replace(loginPage);
+                return false;
+            }
+
+            const userData = JSON.parse(userDataJSON);
+            const userRol = userData.rol ? userData.rol.toLowerCase() : '';
+
+            // 2. Si el rol NO está permitido, redirigir a la página principal (index.html)
+            if (!allowedRoles.includes(userRol)) {
+                alert("Acceso denegado. Solo el rol Voluntario tiene acceso a este panel.");
+                window.location.replace(homePage);
+                return false;
+            }
+            return true;
+        }
+
+        // Llama a la función de protección: Solo Voluntario
         const isAllowed = protectRoute(['voluntario']);
         
-        // Si no está permitido, el script de protección ya redirigió. 
-        // Si isAllowed es true, podemos cargar la lógica de la página.
-        if (isAllowed) {
-            console.log("Acceso de voluntario concedido.");
-            // Aquí iría tu lógica de carga de datos para voluntarios
+        // Si no está permitido, detenemos la ejecución del script aquí (el protectRoute ya redirigió)
+        if (!isAllowed) {
+            throw new Error("Acceso no autorizado. Redirección en curso."); 
         }
+    </script>
+</head>
+<body>
+    <header class="header">
+        <nav class="navbar">
+            <div class="nav-container">
+                <div class="logo">
+                    <img src="/frontend/Green_Roots.jpg" alt="Green Roots Logo" class="logo-img">
+                    <h1>Voluntario</h1>
+                </div>
+                <div class="auth-buttons" style="display: flex; gap: 10px;">
+                    <a href="index.html" class="nav-link"><i class="fas fa-home"></i> Inicio</a>
+                    <a id="logoutBtn" href="#" class="nav-link logout-btn"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</a>
+                </div>
+            </div>
+        </nav>
+    </header>
+    
+    <main style="padding-top: 100px; padding-bottom: 40px;"> <div class="container">
+            <h2 class="section-title">Mi Dashboard de Reforestación</h2>
+
+            <div class="info-grid">
+                 <section class="card registration-form info-card positive">
+                    <div class="card-icon"><i class="fas fa-tree"></i></div>
+                    <h3>Registrar Árbol Plantado</h3>
+                    <form id="registroArbolForm">
+                        <div class="form-group">
+                            <label for="tipoArbol">Tipo de Árbol</label>
+                            <input type="text" id="tipoArbol" placeholder="Ej: Pino Silvestre" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="ubicacionGps">Ubicación GPS (Lat, Lon)</label>
+                            <input type="text" id="ubicacionGps" placeholder="Haga click en 'Obtener GPS'" readonly required>
+                            <button type="button" id="btnGetGps" class="submit-btn btn-sm" style="width: 100%; margin-top: 5px; background: var(--accent-green);"><i class="fas fa-map-marker-alt"></i> Obtener GPS Actual</button>
+                        </div>
+                        <div class="form-group">
+                            <label for="fotoArbol">Adjuntar Foto y Evidencia</label>
+                            <input type="file" id="fotoArbol" accept="image/*" required>
+                        </div>
+                        <button type="submit" class="submit-btn"><i class="fas fa-leaf"></i> Registrar Árbol</button>
+                    </form>
+                </section>
+
+                <section class="card alerts-challenges info-card">
+                    <div class="card-icon" style="background: var(--warning-orange);"><i class="fas fa-bell"></i></div>
+                    <h3>Alertas y Mantenimiento (IoT)</h3>
+                    <div id="alertasMantenimiento" class="benefit-item" style="background-color: var(--warning-orange); color: white; margin-bottom: 15px;">
+                        <i class="fas fa-exclamation-triangle" style="color: white;"></i> 
+                        **Alerta:** El árbol #45 requiere riego urgente (Sensor: Baja Humedad).
+                    </div>
+                    
+                    <h4>Retos Ecológicos:</h4>
+                    <ul id="listaRetos" class="benefits-list" style="padding-left: 0;">
+                        <li class="benefit-item"><i class="fas fa-check-circle" style="color: var(--success-green);"></i> Reto Semanal: Planta 5 árboles. **(¡Completado!)**</li>
+                        <li class="benefit-item"><i class="fas fa-trophy" style="color: var(--accent-green);"></i> Reconocimiento: Voluntario del Mes (En curso).</li>
+                        <li class="benefit-item"><i class="fas fa-calendar-alt" style="color: var(--text-dark);"></i> Próxima Jornada: 25/Oct - Zona Norte.</li>
+                    </ul>
+                </section>
+            </div>
+            
+             <div class="map-container" style="margin-top: 40px;">
+                <h4 class="activity-title">Mapa de Reforestación Colectiva</h4>
+                <div class="interactive-map">
+                    <div class="map-overlay">
+                        <h5>Tu Impacto</h5>
+                        <p>Tu total de árboles registrados: 125</p>
+                    </div>
+                    <div class="gps-point planted" style="top: 50%; left: 30%;" title="Pino Silvestre">
+                        <span class="gps-tooltip">Pino silvestre (ID 123)</span>
+                    </div>
+                     <div class="gps-point" style="top: 20%; left: 70%;" title="Alerta de Riego">
+                        <span class="gps-tooltip">Mantenimiento Requerido</span>
+                    </div>
+                </div>
+                <div class="map-legend">
+                    <div class="legend-item"><span class="legend-dot green"></span> Plantado y Sano</div>
+                    <div class="legend-item"><span class="legend-dot red"></span> Mantenimiento Requerido</div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+    
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-bottom">
+                <p>&copy; 2025 Green Roots. Panel de Voluntario.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // La variable isAllowed ya está definida en el <head> y garantiza que el usuario es voluntario.
+        
+        // Lógica para obtener el GPS
+        document.getElementById('btnGetGps').addEventListener('click', () => {
+            document.getElementById('ubicacionGps').value = "Obteniendo GPS...";
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition((position) => {
+                    const { latitude, longitude } = position.coords;
+                    document.getElementById('ubicacionGps').value = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+                    alert(`GPS obtenido: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+                }, (error) => {
+                    document.getElementById('ubicacionGps').value = "Error al obtener GPS";
+                    alert(`Error al obtener GPS: ${error.message}. Asegúrate de permitir la geolocalización.`);
+                });
+            } else {
+                document.getElementById('ubicacionGps').value = "No soportado";
+                alert("Tu navegador no soporta geolocalización.");
+            }
+        });
+        
+        // Lógica de registro de árbol (Simulación)
+        document.getElementById('registroArbolForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            // Aquí se simularía el proceso de envío a la API (fetch)
+            alert("Árbol registrado exitosamente y pendiente de validación por el Administrador.");
+            document.getElementById('registroArbolForm').reset();
+        });
+
+        // Lógica de Cerrar Sesión
+        document.getElementById("logoutBtn").addEventListener("click", (e) => {
+            e.preventDefault();
+            localStorage.clear();
+            alert("Has cerrado sesión.");
+            window.location.replace("login.html");
+        });
     </script>
 </body>
 </html>
