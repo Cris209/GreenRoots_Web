@@ -2,53 +2,144 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Dashboard - Gobierno</title>
-    </head>
-<body>
-    <header>
-        <h1>Panel de Gobierno 🏛️</h1>
-        <p>Tu única ruta accesible (además de index.html)</p>
-    </header>
-    <main>
-        <section>
-            <h2>Reportes de Impacto y Zonas</h2>
-            </section>
-        <a href="index.html">Volver a la Página Principal</a>
-    </main>
-    <script>
-        function protectRoute(allowedRoles) {
-    const userDataJSON = localStorage.getItem("usuario");
-    const loginPage = "login.html";
-    const homePage = "index.html"; // Página principal de fallback
-
-    // 1. Si no hay sesión, forzar inicio de sesión
-    if (!userDataJSON) {
-        window.location.replace(loginPage);
-        return false;
-    }
-
-    const userData = JSON.parse(userDataJSON);
-    const userRol = userData.rol ? userData.rol.toLowerCase() : '';
-
-    // 2. Si el rol NO está permitido, redirigir a la página principal (index.html)
-    if (!allowedRoles.includes(userRol)) {
-        alert("Acceso denegado. No tienes permisos para esta área.");
-        window.location.replace(homePage);
-        return false;
-    }
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Gobierno - Green Roots</title>
     
-    // 3. Si el rol es correcto, la ejecución del script continúa
-    return true;
-}
-        // ... (función protectRoute) ...
+    <link rel="stylesheet" href="/frontend/home.css"> 
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <script>
+        // Función de Protección de Ruta (debe estar al inicio de cada dashboard)
+        function protectRoute(allowedRoles) {
+            const userDataJSON = localStorage.getItem("usuario");
+            const loginPage = "login.html";
+            const homePage = "index.html"; // Redirige a la página principal si el rol es incorrecto
 
-        // Llama a la función de protección:
+            // 1. Si no hay sesión, forzar inicio de sesión
+            if (!userDataJSON) {
+                window.location.replace(loginPage);
+                return false;
+            }
+
+            const userData = JSON.parse(userDataJSON);
+            const userRol = userData.rol ? userData.rol.toLowerCase() : '';
+
+            // 2. Si el rol NO está permitido, redirigir a la página principal (index.html)
+            if (!allowedRoles.includes(userRol)) {
+                alert("Acceso denegado. Solo el rol Gobierno tiene acceso a este panel.");
+                window.location.replace(homePage);
+                return false;
+            }
+            return true;
+        }
+
+        // Llama a la función de protección: Solo Gobierno
         const isAllowed = protectRoute(['gobierno']);
         
-        if (isAllowed) {
-            console.log("Acceso de gobierno concedido.");
-            // Aquí iría tu lógica de carga de datos para gobierno
+        // Si no está permitido, detenemos la ejecución del script aquí
+        if (!isAllowed) {
+            throw new Error("Acceso no autorizado. Redirección en curso."); 
         }
+    </script>
+</head>
+<body>
+    <header class="header">
+        <nav class="navbar">
+            <div class="nav-container">
+                <div class="logo">
+                    <img src="/frontend/Green_Roots.jpg" alt="Green Roots Logo" class="logo-img">
+                    <h1>Gobierno</h1>
+                </div>
+                <div class="auth-buttons" style="display: flex; gap: 10px;">
+                    <a href="index.html" class="nav-link"><i class="fas fa-home"></i> Inicio</a>
+                    <a id="logoutBtn" href="#" class="nav-link logout-btn"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</a>
+                </div>
+            </div>
+        </nav>
+    </header>
+    
+    <main style="padding-top: 100px; padding-bottom: 40px;">
+        <div class="container">
+            <h2 class="section-title">Monitoreo Ambiental y Político</h2>
+
+            <section class="statistics" style="margin-bottom: 40px;">
+                <h3>Estadísticas de Crecimiento y Supervivencia</h3>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-number" style="color: var(--success-green);">85%</span>
+                        <span class="stat-label">Tasa de Supervivencia</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-number">12,500</span>
+                        <span class="stat-label">Árboles Registrados</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-number">1.2m</span>
+                        <span class="stat-label">Crecimiento Promedio Anual</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-number" style="color: var(--warning-orange);">Zona Norte</span>
+                        <span class="stat-label">Monitoreo Prioritario</span>
+                    </div>
+                </div>
+            </section>
+
+            <div class="info-grid">
+                <section class="card info-card" style="border-left: 5px solid var(--light-green);">
+                    <div class="card-icon"><i class="fas fa-microchip"></i></div>
+                    <h3>Integración con Sensores IoT</h3>
+                    <p style="margin-bottom: 15px;">Datos en tiempo real para optimizar la toma de decisiones sobre el terreno.</p>
+                    <ul class="benefits-list" style="padding-left: 0;">
+                        <li class="benefit-item"><i class="fas fa-tint" style="color: var(--primary-green);"></i> Humedad del Suelo (Promedio): **65%** (Óptima)</li>
+                        <li class="benefit-item"><i class="fas fa-thermometer-half" style="color: var(--danger-red);"></i> Temperatura (Promedio): **25°C**</li>
+                        <li class="benefit-item"><i class="fas fa-map-marked-alt" style="color: var(--accent-green);"></i> Monitoreo por Zona: **Mapa de Condiciones**</li>
+                    </ul>
+                </section>
+                
+                <section class="card info-card positive">
+                    <div class="card-icon"><i class="fas fa-chart-line"></i></div>
+                    <h3>Reportes para Políticas Públicas y Certificaciones</h3>
+                    <p style="margin-bottom: 20px;">Genera documentos de impacto para justificar inversiones y cumplimiento normativo.</p>
+                    <button class="submit-btn" onclick="exportReport('PDF')"><i class="fas fa-file-pdf"></i> Exportar Reporte Anual (PDF)</button>
+                    <button class="submit-btn" style="background: var(--light-green); margin-top: 10px;" onclick="exportReport('CSV')"><i class="fas fa-file-csv"></i> Exportar Datos Brutos (CSV)</button>
+                </section>
+            </div>
+            
+            <section class="card impact-charts" style="margin-top: 40px; padding: 30px;">
+                <h4 class="activity-title">Visualización del Impacto por Zona Geográfica</h4>
+                <div id="mapaImpacto" style="height: 400px; background-color: #e0f0e0; border-radius: 10px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; color: var(--text-light);">
+                    [Mapa de Calor o Zonas de Monitoreo]
+                </div>
+                <p style="text-align: center; color: var(--text-light);"><i class="fas fa-search"></i> **Filtros:** Comunidad, Especie, Fecha</p>
+            </section>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-bottom">
+                <p>&copy; 2025 Green Roots. Dashboard Gubernamental.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // La variable isAllowed ya está definida en el <head> y garantiza que el usuario es gobierno.
+        
+        // Lógica de simulación de exportación de reportes
+        window.exportReport = (format) => {
+            alert(`Solicitando reporte en formato ${format} al servidor. La descarga comenzará pronto.`);
+            // Aquí iría el fetch a la API: fetch(`${API_URL}/reports?format=${format}`, { headers: { Authorization: 'Bearer ...' }});
+        }
+
+        // Lógica de Cerrar Sesión
+        document.getElementById("logoutBtn").addEventListener("click", (e) => {
+            e.preventDefault();
+            localStorage.clear();
+            alert("Has cerrado sesión.");
+            window.location.replace("login.html");
+        });
     </script>
 </body>
 </html>
