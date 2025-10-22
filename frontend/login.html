@@ -9,9 +9,10 @@
     <link rel="stylesheet" href="/frontend/style.css"> 
     
     <script>
-        // Persistencia: Si hay una sesión activa, redirige inmediatamente al index.html
-        // (donde index.html le permite quedarse o le muestra su dashboard si usa el enlace "Mi Panel").
+        // Persistencia: Si hay una sesión activa, la redirección es manejada por el script principal
+        // Mantenemos la redirección a index.html si hay sesión activa para evitar volver al login.
         if (localStorage.getItem("usuario")) {
+            // Esto evita que el usuario vea la pantalla de login si ya está autenticado.
             window.location.href = "index.html"; 
         }
     </script>
@@ -57,13 +58,20 @@
             const mensajeError = document.getElementById("mensaje-error");
 
             mensajeError.textContent = "";
+            mensajeError.style.color = "red"; // Asegurar que los errores se vean en rojo
 
             if (!email || !password) {
                  mensajeError.textContent = "Por favor, ingresa correo y contraseña.";
                  return;
             }
+            
+            // Deshabilitar botón para evitar múltiples envíos
+            const submitButton = e.submitter;
+            submitButton.disabled = true;
+            submitButton.textContent = "Iniciando...";
 
             try {
+                // 1. Llamada a la API para autenticación
                 const res = await fetch(`${API_URL}/login`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -76,48 +84,51 @@
                     // Muestra el mensaje de error del backend (ej. credenciales incorrectas)
                     const mensaje = data.mensaje || "Error desconocido al iniciar sesión.";
                     mensajeError.textContent = mensaje;
-                    mensajeError.style.color = "red";
                     alert("Error de inicio de sesión: " + mensaje);
-                    return;
+                    return; // Detiene la ejecución en caso de error
                 }
 
                 // INICIO DE SESIÓN EXITOSO
                 const userData = data.usuario; 
 
-                // 1. Guardar la sesión persistente en localStorage
+                // 2. Guardar la sesión persistente en localStorage
                 localStorage.setItem("usuario", JSON.stringify(userData));
                 localStorage.setItem("sessionTime", new Date().getTime().toString());
 
                 alert(`¡Bienvenido, ${userData.nombre}! Sesión iniciada como ${userData.rol}.`);
                 
-                // 2. LÓGICA DE REDIRECCIÓN POR ROL (La parte clave que faltaba o estaba mal) 🚨
+                // 3. LÓGICA DE REDIRECCIÓN POR ROL 🚨 (EL CAMBIO CLAVE)
                 const rolUsuario = userData.rol ? userData.rol.toLowerCase() : '';
                 let redirectUrl = "index.html"; // Fallback por si el rol es desconocido
 
+                // Usamos switch/case para asignar la URL correcta
                 switch (rolUsuario) {
-                    case 'Voluntario':
-                        redirectUrl = "voluntariado.html"; // Redirección al dashboard de Voluntario
+                    case 'voluntario':
+                        redirectUrl = "voluntariado.html"; 
                         break;
-                    case 'Gobierno':
-                        redirectUrl = "dashboard_gobierno.html"; // Redirección al dashboard de Gobierno
+                    case 'gobierno':
+                        redirectUrl = "dashboard_gobierno.html"; 
                         break;
-                    case 'Administrador':
-                        redirectUrl = "admin_panel.html"; // Redirección al dashboard de Administrador
+                    case 'administrador':
+                        redirectUrl = "admin_panel.html"; 
                         break;
                     default:
                         console.warn(`Rol desconocido: ${rolUsuario}. Redirigiendo a index.html.`);
                         break;
                 }
 
-                // Ejecutar la redirección al dashboard específico del rol
+                // 4. Ejecutar la redirección al dashboard específico del rol
                 // Usamos replace() para que la página de login no quede en el historial
                 window.location.replace(redirectUrl); 
                 
             } catch (err) {
                 console.error("Error de conexión:", err);
                 mensajeError.textContent = "Error de conexión con el servidor. Intenta nuevamente.";
-                mensajeError.style.color = "red";
                 alert("Error de Conexión: No se pudo conectar con el servidor.");
+            } finally {
+                // Restaurar el botón en caso de cualquier error (si no hubo redirección)
+                submitButton.disabled = false;
+                submitButton.textContent = "Iniciar Sesión";
             }
         });
         
