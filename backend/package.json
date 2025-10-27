@@ -12,6 +12,7 @@
     "bcrypt": "^5.1.1",
     "firebase-admin": "^11.11.0",
     "axios": "^1.7.2",
-    "validator": "^13.11.0"
+    "validator": "^13.11.0",
+    "multer": "^3.0.0"
   }
 }
