@@ -81,9 +81,14 @@ function validatePassword(password) {
 }
 // Middleware de Verificación de Administrador
 // Compara el rol con la mayúscula inicial definida
+// Servidor.js (FUNCIÓN DE VERIFICACIÓN DE ADMINISTRADOR)
+
 function verificaradmin(req, res, next) {
+    // 🚨 CORRECCIÓN: Usamos 'x-user-rol' (con L) y convertimos a minúsculas
     const rolUsuario = req.headers['x-user-rol'];
-    if (rolUsuario === 'Administrador') {
+    
+    // Verificamos si el rol, en minúsculas, es 'administrador'
+    if (rolUsuario && rolUsuario.toLowerCase() === 'administrador') {
         next();
     } else {
         res.status(403).json({ ok: false, mensaje: "Acceso denegado. Se requiere rol de Administrador." });
