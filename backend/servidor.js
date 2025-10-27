@@ -757,6 +757,129 @@ app.get('/api/voluntario/mis-reto', async (req, res) => {
 
 
 // ===================================
+// 📅 GESTIÓN DE EVENTOS
+// ===================================
+
+/**
+ * Crear un nuevo evento
+ */
+app.post('/api/admin/eventos', verificaradmin, async (req, res) => {
+    const { titulo, descripcion, fecha, hora, ubicacion, activo } = req.body;
+    
+    if (!titulo || !descripcion) {
+        return res.status(400).json({ mensaje: "Título y descripción son obligatorios." });
+    }
+    
+    try {
+        const nuevoEvento = {
+            titulo,
+            descripcion,
+            fecha: fecha || null,
+            hora: hora || null,
+            ubicacion: ubicacion || '',
+            activo: activo !== undefined ? activo : true,
+            fechaCreacion: new Date(),
+            fechaActualizacion: new Date()
+        };
+        
+        const docRef = await db.collection('eventos').add(nuevoEvento);
+        
+        console.log(`Evento creado: ${docRef.id}`);
+        
+        res.status(201).json({ 
+            ok: true, 
+            mensaje: "Evento creado exitosamente.",
+            id: docRef.id 
+        });
+    } catch (error) {
+        console.error("Error al crear evento:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al crear evento." });
+    }
+});
+
+/**
+ * Obtener todos los eventos
+ */
+app.get('/api/admin/eventos', verificaradmin, async (req, res) => {
+    try {
+        const snapshot = await db.collection('eventos')
+            .orderBy('fechaCreacion', 'desc')
+            .get();
+        
+        const eventos = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        res.status(200).json({ ok: true, eventos });
+    } catch (error) {
+        console.error("Error al obtener eventos:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener eventos." });
+    }
+});
+
+/**
+ * Obtener eventos activos para voluntarios
+ */
+app.get('/api/eventos/activos', async (req, res) => {
+    try {
+        const snapshot = await db.collection('eventos')
+            .where('activo', '==', true)
+            .orderBy('fecha', 'asc')
+            .get();
+        
+        const eventos = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        res.status(200).json({ ok: true, eventos });
+    } catch (error) {
+        console.error("Error al obtener eventos activos:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener eventos." });
+    }
+});
+
+/**
+ * Eliminar evento
+ */
+app.delete('/api/admin/eventos/:id', verificaradmin, async (req, res) => {
+    const eventoId = req.params.id;
+    
+    try {
+        await db.collection('eventos').doc(eventoId).delete();
+        
+        res.status(200).json({ ok: true, mensaje: "Evento eliminado correctamente." });
+    } catch (error) {
+        console.error("Error al eliminar evento:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al eliminar evento." });
+    }
+});
+
+/**
+ * Actualizar evento
+ */
+app.patch('/api/admin/eventos/:id', verificaradmin, async (req, res) => {
+    const eventoId = req.params.id;
+    const updates = req.body;
+    
+    if (!updates || Object.keys(updates).length === 0) {
+        return res.status(400).json({ mensaje: "No se proporcionaron datos para actualizar." });
+    }
+    
+    try {
+        updates.fechaActualizacion = new Date();
+        
+        await db.collection('eventos').doc(eventoId).update(updates);
+        
+        res.status(200).json({ ok: true, mensaje: "Evento actualizado correctamente." });
+    } catch (error) {
+        console.error("Error al actualizar evento:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al actualizar evento." });
+    }
+});
+
+// ===================================
 // INICIO DEL SERVIDOR
 // ===================================
 const PORT = process.env.PORT || 5000;
