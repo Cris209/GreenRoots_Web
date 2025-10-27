@@ -100,13 +100,112 @@ function checkAdmin(req, res, next) {
 // 📌 Ruta: REGISTRO
 app.post("/api/registro", async (req, res) => {
     const { nombre, email, password, rol } = req.body;
-    // ... (Tu código de registro existente) ...
+
+    // 1. Validaciones de Seguridad
+    const validaciones = [validateNombre(nombre), await validateEmail(email), validatePassword(password)];
+    for (const error of validaciones) {
+        if (error) return res.status(400).json({ ok: false, mensaje: error });
+    }
+    if (!rol) return res.status(400).json({ ok: false, mensaje: "El rol es obligatorio." });
+
+    try {
+        // PASO 1: CREAR USUARIO EN FIREBASE AUTH
+        const userRecord = await admin.auth().createUser({
+            email: email,
+            password: password,
+            displayName: nombre,
+        });
+
+        const uid = userRecord.uid;
+
+        // PASO 2: GUARDAR PERFIL EN FIRESTORE
+        await db.collection("usuarios").doc(uid).set({
+            nombre: nombre,
+            email: email,
+            rol: rol,
+        });
+
+        res.json({ ok: true, mensaje: "Usuario registrado y perfil creado correctamente" });
+
+    } catch (error) {
+        console.error("Error en registro:", error);
+        let mensajeError = "Error en el servidor.";
+        if (error.code === 'auth/email-already-in-use') {
+            mensajeError = "El correo electrónico ya está registrado.";
+            return res.status(409).json({ ok: false, mensaje: mensajeError });
+        }
+        res.status(500).json({ ok: false, mensaje: mensajeError });
+    }
 });
 
 
 // 📌 Ruta: LOGIN
 app.post("/api/login", async (req, res) => {
-    // ... (Tu código de login existente) ...
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) return res.status(400).json({ ok: false, mensaje: "Faltan datos." });
+        
+        // 1. Validación de Email
+        const emailError = await validateEmail(email);
+        if (emailError) return res.status(400).json({ ok: false, mensaje: emailError });
+
+        // 2. Bloqueo por Intentos Fallidos
+        const now = Date.now();
+        const attempts = loginAttempts[email];
+
+        if (attempts) {
+            if (attempts.count >= MAX_ATTEMPTS && now - attempts.time < LOCKOUT_TIME_MS) {
+                const remainingTime = Math.ceil((LOCKOUT_TIME_MS - (now - attempts.time)) / 60000); // en minutos
+                return res.status(429).json({ 
+                    ok: false, 
+                    mensaje: `Demasiados intentos de inicio de sesión. Intente de nuevo en ${remainingTime} minutos.` 
+                });
+            } else if (now - attempts.time >= LOCKOUT_TIME_MS) {
+                delete loginAttempts[email]; // Reset
+            }
+        }
+        
+        let uid;
+
+        // --- PASO 3: AUTENTICAR CON FIREBASE REST API ---
+        try {
+            const loginUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_WEB_API_KEY}`;
+            const authResponse = await axios.post(loginUrl, { email, password, returnSecureToken: true });
+            
+            delete loginAttempts[email]; // Éxito: borramos intentos fallidos
+            uid = authResponse.data.localId;
+            
+        } catch (authError) {
+            // Fallo: Incrementar contador
+            loginAttempts[email] = { count: (loginAttempts[email]?.count || 0) + 1, time: now };
+            return res.status(401).json({ ok: false, mensaje: "Credenciales incorrectas o usuario no encontrado." });
+        }
+        
+        // --- PASO 4: OBTENER EL PERFIL DE FIRESTORE ---
+        const doc = await db.collection("usuarios").doc(uid).get();
+
+        if (!doc.exists) {
+            return res.status(404).json({ ok: false, mensaje: "Perfil de usuario no encontrado." });
+        }
+
+        const usuario = doc.data();
+
+        // --- PASO 5: RESPUESTA EXITOSA ---
+        res.json({ 
+            ok: true, 
+            mensaje: "Sesión iniciada", 
+            usuario: { 
+                email: usuario.email, 
+                nombre: usuario.nombre, 
+                rol: usuario.rol 
+            } 
+        });
+        
+    } catch (error) {
+        console.error("Error general en login:", error);
+        res.status(500).json({ ok: false, mensaje: "Error interno del servidor." });
+    }
 });
 
 // ===================================
