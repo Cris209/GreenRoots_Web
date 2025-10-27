@@ -95,8 +95,11 @@ function verificaradmin(req, res, next) {
     // HTTP headers are case-insensitive, check for both variations
     const rolUsuario = req.headers['x-user-rol'] || req.headers['X-User-Rol'];
     
+    console.log(`verificaradmin - Received role: ${rolUsuario}`);
+    
     // Verificamos si el rol, en minúsculas, es 'administrador'
     if (rolUsuario && rolUsuario.toLowerCase() === 'administrador') {
+        console.log('Admin access granted');
         next();
     } else {
         console.error(`Access denied. Role: ${rolUsuario}, Headers:`, req.headers);
@@ -255,6 +258,13 @@ app.post('/api/arboles/registrar', upload.single('evidenciaFoto'), async (req, r
 
         const docref = await db.collection('arboles').add(nuevoregistro);
         
+        console.log(`Tree registered successfully:`, {
+            id: docref.id,
+            voluntarioid: voluntarioid,
+            tipodearbol: tipoarbol,
+            estadovalidacion: nuevoregistro.estadovalidacion
+        });
+        
         res.status(201).json({ 
             ok: true,
             mensaje: "Árbol registrado. Pendiente de validación.", 
@@ -288,24 +298,82 @@ app.get('/api/voluntario/retos', async (req, res) => {
  * Endpoint para obtener todos los registros de árboles pendientes de validación.
  * Protegido por verificaradmin.
  */
+/**
+ * Endpoint para diagnosticar - obtener TODOS los registros sin filtrar
+ */
+app.get('/api/admin/validacion/all', verificaradmin, async (req, res) => {
+    try {
+        const snapshot = await db.collection('arboles').get();
+        const registros = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        console.log(`Total records in database: ${registros.length}`);
+        console.log('Records:', registros);
+        
+        res.status(200).json({ ok: true, total: registros.length, registros });
+    } catch (error) {
+        console.error("Error al obtener todos los registros:", error);
+        res.status(500).json({ ok: false, mensaje: "Error interno del servidor." });
+    }
+});
+
 app.get('/api/admin/validacion/pendientes', verificaradmin, async (req, res) => {
     try {
-        // La query debe coincidir con el campo guardado en el registro: estadovalidacion
+        console.log('Fetching pending validations...');
+        
+        // Query without orderBy to avoid index issues
         const snapshot = await db.collection('arboles')
-                                 .where('estadovalidacion', '==', 'Pendiente')
-                                 .orderBy('fecharegistro', 'asc')
-                                 .get();
+            .where('estadovalidacion', '==', 'Pendiente')
+            .get();
 
         const registros = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
         }));
 
-        res.status(200).json({ ok: true, registros });
+        console.log(`Found ${registros.length} pending registrations`);
+        
+        // If no records found, get diagnostic info
+        if (registros.length === 0) {
+            console.warn("No records found with 'Pendiente' status");
+            
+            // Get all records for diagnostic
+            const allSnapshot = await db.collection('arboles').limit(100).get();
+            const allRecords = allSnapshot.docs.map(doc => doc.data());
+            
+            // Count status distribution
+            const statusCount = {};
+            allRecords.forEach(r => {
+                const status = (r.estadovalidacion || 'undefined').toLowerCase();
+                statusCount[status] = (statusCount[status] || 0) + 1;
+            });
+            
+            console.log('Total records in arboles collection:', allRecords.length);
+            console.log('Status distribution:', statusCount);
+        }
+        
+        res.status(200).json({ 
+            ok: true, 
+            registros,
+            total: registros.length 
+        });
 
     } catch (error) {
         console.error("Error al obtener registros pendientes:", error);
-        res.status(500).json({ ok: false, mensaje: "Error interno del servidor." });
+        console.error("Error details:", error.message, error.stack);
+        
+        // Try to provide helpful error message
+        let errorMessage = "Error interno del servidor.";
+        if (error.code) {
+            errorMessage += ` Código: ${error.code}`;
+        }
+        if (error.message) {
+            errorMessage += ` Mensaje: ${error.message}`;
+        }
+        
+        res.status(500).json({ ok: false, mensaje: errorMessage });
     }
 });
 
