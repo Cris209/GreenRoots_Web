@@ -51,32 +51,34 @@ const LOCKOUT_TIME_MS = 10 * 60 * 1000;
 // FUNCIONES DE VALIDACIÓN DE SEGURIDAD
 // ===================================
 
-function validarnombre(nombre) {
+function validateNombre(nombre) {
     if (!nombre) return "El nombre es obligatorio.";
     if (nombre.length > 30) return "El nombre no puede exceder los 30 caracteres.";
+    // Solo se permiten letras, números, espacios y tildes/ñ
     if (/[^a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑ]/.test(nombre)) {
         return "El nombre contiene caracteres especiales no permitidos.";
     }
     return null; 
 }
 
-async function validaremail(email) {
+async function validateEmail(email) {
+    // Verificación de formato estándar estricto (sin display name, requiere TLD)
     if (!validator.isEmail(email, { allow_display_name: false, require_tld: true, allow_utf8_local_part: false })) {
         return "El formato del correo electrónico es inválido.";
     }
     return null; 
 }
 
-function validarcontrasena(contrasena) {
-    const contrasenaPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9\s]).{8,}$/;
+function validatePassword(password) {
+    // Al menos 8 caracteres, mayúscula, minúscula, número, y especial (sin espacio en blanco)
+    const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9\s]).{8,}$/;
     
-    if (contrasena.length < 8) return "La contraseña debe tener al menos 8 caracteres.";
-    if (!contrasenaPattern.test(contrasena)) {
-        return "La contraseña debe incluir mayúsculas, minúsculas, números y al menos un carácter especial.";
+    if (password.length < 8) return "La contraseña debe tener al menos 8 caracteres.";
+    if (!passwordPattern.test(password)) {
+         return "La contraseña debe incluir mayúsculas, minúsculas, números y al menos un carácter especial.";
     }
     return null;
 }
-
 // Middleware de Verificación de Administrador
 // Compara el rol con la mayúscula inicial definida
 function verificaradmin(req, res, next) {
@@ -95,25 +97,20 @@ function verificaradmin(req, res, next) {
 
 // 📌 Ruta: REGISTRO
 app.post("/api/registro", async (req, res) => {
-    const { nombre, email, contrasena, rol } = req.body; // Usa 'contrasena'
-    
-    // 1. Validaciones de Seguridad (usando variables en minúsculas)
-    const validaciones = [validarnombre(nombre), await validaremail(email), validarcontrasena(contrasena)];
+    const { nombre, email, password, rol } = req.body;
+
+    // 1. Validaciones de Seguridad
+    const validaciones = [validateNombre(nombre), await validateEmail(email), validatePassword(password)];
     for (const error of validaciones) {
         if (error) return res.status(400).json({ ok: false, mensaje: error });
     }
-    
-    // 🚨 Validación estricta de Roles con MAYÚSCULA INICIAL
-    const rolesValidos = ['Administrador', 'Voluntario', 'Gobierno'];
-    if (!rol || !rolesValidos.includes(rol)) {
-        return res.status(400).json({ ok: false, mensaje: "El rol es obligatorio y debe ser válido (Administrador, Voluntario, Gobierno)." });
-    }
+    if (!rol) return res.status(400).json({ ok: false, mensaje: "El rol es obligatorio." });
 
     try {
         // PASO 1: CREAR USUARIO EN FIREBASE AUTH
         const userRecord = await admin.auth().createUser({
             email: email,
-            password: contrasena, // Usa 'contrasena'
+            password: password,
             displayName: nombre,
         });
 
@@ -123,7 +120,7 @@ app.post("/api/registro", async (req, res) => {
         await db.collection("usuarios").doc(uid).set({
             nombre: nombre,
             email: email,
-            rol: rol, // El rol se guarda con Mayúscula Inicial (ej: 'Administrador')
+            rol: rol,
         });
 
         res.json({ ok: true, mensaje: "Usuario registrado y perfil creado correctamente" });
@@ -143,25 +140,36 @@ app.post("/api/registro", async (req, res) => {
 // 📌 Ruta: LOGIN
 app.post("/api/login", async (req, res) => {
     try {
-        const { email, contrasena } = req.body; // Usa 'contrasena'
+        const { email, password } = req.body;
 
-        if (!email || !contrasena) return res.status(400).json({ ok: false, mensaje: "Faltan datos." });
+        if (!email || !password) return res.status(400).json({ ok: false, mensaje: "Faltan datos." });
         
         // 1. Validación de Email
-        const emailerror = await validaremail(email);
-        if (emailerror) return res.status(400).json({ ok: false, mensaje: emailerror });
+        const emailError = await validateEmail(email);
+        if (emailError) return res.status(400).json({ ok: false, mensaje: emailError });
 
         // 2. Bloqueo por Intentos Fallidos
         const now = Date.now();
         const attempts = loginAttempts[email];
-        // ... (Tu lógica de bloqueo sin cambios) ...
+
+        if (attempts) {
+            if (attempts.count >= MAX_ATTEMPTS && now - attempts.time < LOCKOUT_TIME_MS) {
+                const remainingTime = Math.ceil((LOCKOUT_TIME_MS - (now - attempts.time)) / 60000); // en minutos
+                return res.status(429).json({ 
+                    ok: false, 
+                    mensaje: `Demasiados intentos de inicio de sesión. Intente de nuevo en ${remainingTime} minutos.` 
+                });
+            } else if (now - attempts.time >= LOCKOUT_TIME_MS) {
+                delete loginAttempts[email]; // Reset
+            }
+        }
         
         let uid;
 
         // --- PASO 3: AUTENTICAR CON FIREBASE REST API ---
         try {
             const loginUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_WEB_API_KEY}`;
-            const authResponse = await axios.post(loginUrl, { email, password: contrasena, returnSecureToken: true }); // Envía 'password' a Firebase
+            const authResponse = await axios.post(loginUrl, { email, password, returnSecureToken: true });
             
             delete loginAttempts[email]; // Éxito: borramos intentos fallidos
             uid = authResponse.data.localId;
@@ -188,7 +196,7 @@ app.post("/api/login", async (req, res) => {
             usuario: { 
                 email: usuario.email, 
                 nombre: usuario.nombre, 
-                rol: usuario.rol // El rol se envía con Mayúscula Inicial
+                rol: usuario.rol 
             } 
         });
         
