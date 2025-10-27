@@ -42,7 +42,43 @@ try {
 
 const db = admin.firestore();
 
-// ... (Bloqueo de sesiones y Funciones de Validación de Seguridad sin cambios) ...
+// 🚨 Almacenamiento temporal para el bloqueo de sesiones (Rate Limiting)
+const loginAttempts = {}; // { email: { count: 0, time: Date } }
+const MAX_ATTEMPTS = 3;
+const LOCKOUT_TIME_MS = 10 * 60 * 1000; // Bloqueo de 10 minutos (AJUSTAR AQUÍ SI ES NECESARIO)
+
+// ===================================
+// FUNCIONES DE VALIDACIÓN DE SEGURIDAD
+// ===================================
+
+function validateNombre(nombre) {
+    if (!nombre) return "El nombre es obligatorio.";
+    if (nombre.length > 30) return "El nombre no puede exceder los 30 caracteres.";
+    // Solo se permiten letras, números, espacios y tildes/ñ
+    if (/[^a-zA-Z0-9\sáéíóúÁÉÍÓÚñÑ]/.test(nombre)) {
+        return "El nombre contiene caracteres especiales no permitidos.";
+    }
+    return null; 
+}
+
+async function validateEmail(email) {
+    // Verificación de formato estándar estricto (sin display name, requiere TLD)
+    if (!validator.isEmail(email, { allow_display_name: false, require_tld: true, allow_utf8_local_part: false })) {
+        return "El formato del correo electrónico es inválido.";
+    }
+    return null; 
+}
+
+function validatePassword(password) {
+    // Al menos 8 caracteres, mayúscula, minúscula, número, y especial (sin espacio en blanco)
+    const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9\s]).{8,}$/;
+    
+    if (password.length < 8) return "La contraseña debe tener al menos 8 caracteres.";
+    if (!passwordPattern.test(password)) {
+         return "La contraseña debe incluir mayúsculas, minúsculas, números y al menos un carácter especial.";
+    }
+    return null;
+}
 
 // 🚨 Middleware de Verificación de Administrador (Simulación)
 function checkAdmin(req, res, next) {
