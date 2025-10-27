@@ -10,8 +10,16 @@ const multer = require('multer');
 // ===================================
 
 const app = express();
-app.use(cors());
+// Enhanced CORS configuration
+const corsOptions = {
+    origin: '*', // In production, replace with your frontend URL
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-User-Rol'],
+    credentials: false
+};
+app.use(cors(corsOptions));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // CONFIGURACIÓN DE MULTER
 const upload = multer({ 
@@ -84,13 +92,14 @@ function validatePassword(password) {
 // Servidor.js (FUNCIÓN DE VERIFICACIÓN DE ADMINISTRADOR)
 
 function verificaradmin(req, res, next) {
-    // 🚨 CORRECCIÓN: Usamos 'x-user-rol' (con L) y convertimos a minúsculas
-    const rolUsuario = req.headers['x-user-rol'];
+    // HTTP headers are case-insensitive, check for both variations
+    const rolUsuario = req.headers['x-user-rol'] || req.headers['X-User-Rol'];
     
     // Verificamos si el rol, en minúsculas, es 'administrador'
     if (rolUsuario && rolUsuario.toLowerCase() === 'administrador') {
         next();
     } else {
+        console.error(`Access denied. Role: ${rolUsuario}, Headers:`, req.headers);
         res.status(403).json({ ok: false, mensaje: "Acceso denegado. Se requiere rol de Administrador." });
     }
 }
@@ -199,6 +208,7 @@ app.post("/api/login", async (req, res) => {
             ok: true, 
             mensaje: "Sesión iniciada", 
             usuario: { 
+                id: uid, // Include UID for frontend to use as identifier
                 email: usuario.email, 
                 nombre: usuario.nombre, 
                 rol: usuario.rol 
@@ -218,7 +228,7 @@ app.post("/api/login", async (req, res) => {
 /**
  * Endpoint para registrar un árbol plantado.
  */
-app.post('/api/arboles/registrar', upload.single('evidenciafoto'), async (req, res) => {
+app.post('/api/arboles/registrar', upload.single('evidenciaFoto'), async (req, res) => {
     // Todos los campos en minúsculas
     const { voluntarioid, tipoarbol, ubicaciongps } = req.body; 
     const fotofile = req.file; 
