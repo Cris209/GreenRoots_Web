@@ -823,20 +823,50 @@ app.get('/api/admin/eventos', verificaradmin, async (req, res) => {
  */
 app.get('/api/eventos/activos', async (req, res) => {
     try {
-        const snapshot = await db.collection('eventos')
-            .where('activo', '==', true)
-            .orderBy('fecha', 'asc')
-            .get();
+        console.log('Fetching active events...');
+        
+        // Try with orderBy first, but handle missing index
+        let snapshot;
+        try {
+            snapshot = await db.collection('eventos')
+                .where('activo', '==', true)
+                .orderBy('fecha', 'asc')
+                .get();
+        } catch (orderError) {
+            // If orderBy fails due to missing index, query without ordering
+            console.warn("Index missing for fecha, querying without order:", orderError.message);
+            snapshot = await db.collection('eventos')
+                .where('activo', '==', true)
+                .get();
+        }
         
         const eventos = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
         }));
         
+        // Sort manually if no orderBy was used
+        if (snapshot.docs.length > 0 && !snapshot.docs[0].data().fecha?.seconds) {
+            eventos.sort((a, b) => {
+                const fechaA = a.fecha || '';
+                const fechaB = b.fecha || '';
+                return fechaA.localeCompare(fechaB);
+            });
+        }
+        
+        console.log(`Found ${eventos.length} active events`);
         res.status(200).json({ ok: true, eventos });
+        
     } catch (error) {
         console.error("Error al obtener eventos activos:", error);
-        res.status(500).json({ ok: false, mensaje: "Error al obtener eventos." });
+        console.error("Error details:", error.message, error.stack);
+        
+        let errorMessage = "Error al obtener eventos.";
+        if (error.message) {
+            errorMessage += ` ${error.message}`;
+        }
+        
+        res.status(500).json({ ok: false, mensaje: errorMessage });
     }
 });
 
