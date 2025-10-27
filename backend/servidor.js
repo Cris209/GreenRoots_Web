@@ -280,14 +280,35 @@ app.post('/api/arboles/registrar', upload.single('evidenciaFoto'), async (req, r
 /**
  * Endpoint para simular la obtención de retos.
  */
+/**
+ * @deprecated - Use /api/campanas/activas instead
+ * Get active challenges for volunteers (legacy endpoint)
+ */
 app.get('/api/voluntario/retos', async (req, res) => {
-    const retosactivos = [
-        { id: 1, titulo: "Maratón de Riego", descripcion: "Riega 10 árboles en la Zona Norte.", completado: false },
-        { id: 2, titulo: "Especie Rara", descripcion: "Planta al menos 3 Cedros.", completado: true },
-    ];
-    const reconocimientos = ["Voluntario del Mes (Octubre)", "Experto en Reforestación"];
-    
-    res.status(200).json({ retosactivos, reconocimientos });
+    try {
+        // Get active campaigns from database
+        const snapshot = await db.collection('campanas')
+            .where('activa', '==', true)
+            .limit(10)
+            .get();
+        
+        const retosactivos = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        // For now, return empty recognitions (can be extended with real data)
+        const reconocimientos = [];
+        
+        res.status(200).json({ retosactivos, reconocimientos });
+    } catch (error) {
+        console.error("Error al obtener retos:", error);
+        // Fallback to default data
+        const retosactivos = [
+            { id: 1, titulo: "Maratón de Riego", descripcion: "Riega 10 árboles en la Zona Norte.", completado: false },
+        ];
+        res.status(200).json({ retosactivos, reconocimientos: [] });
+    }
 });
 
 // ===================================
@@ -412,11 +433,47 @@ app.patch('/api/admin/validacion/:id', verificaradmin, async (req, res) => {
     }
 });
 
+// ===================================
+// 👥 GESTIÓN DE USUARIOS Y ROLES
+// ===================================
+
 /**
- * Endpoint para Gestión de Usuarios y Roles (Simulación).
- * Protegido por verificaradmin.
+ * Obtener todos los usuarios
  */
-app.patch('/api/admin/gestion/usuario/:uid', verificaradmin, async (req, res) => {
+app.get('/api/admin/usuarios', verificaradmin, async (req, res) => {
+    try {
+        const snapshot = await db.collection('usuarios').get();
+        
+        const usuarios = await Promise.all(snapshot.docs.map(async (doc) => {
+            const userData = doc.data();
+            
+            // Get additional info from Firebase Auth
+            let authInfo = { disabled: false };
+            try {
+                const authUser = await admin.auth().getUser(doc.id);
+                authInfo = { disabled: authUser.disabled };
+            } catch (authError) {
+                console.warn(`Could not get auth info for ${doc.id}`);
+            }
+            
+            return {
+                uid: doc.id,
+                ...userData,
+                activo: !authInfo.disabled
+            };
+        }));
+        
+        res.status(200).json({ ok: true, usuarios });
+    } catch (error) {
+        console.error("Error al obtener usuarios:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener usuarios." });
+    }
+});
+
+/**
+ * Actualizar usuario (rol y/o estado)
+ */
+app.patch('/api/admin/usuarios/:uid', verificaradmin, async (req, res) => {
     const uid = req.params.uid;
     const { nuevorol, estado } = req.body;
 
@@ -426,20 +483,275 @@ app.patch('/api/admin/gestion/usuario/:uid', verificaradmin, async (req, res) =>
 
     try {
         const dataactualizar = {};
+        
         if (nuevorol) {
+            // Validate role
+            const rolesValidos = ['Voluntario', 'Administrador', 'Gobierno'];
+            if (!rolesValidos.includes(nuevorol)) {
+                return res.status(400).json({ mensaje: "Rol inválido. Roles válidos: Voluntario, Administrador, Gobierno" });
+            }
             dataactualizar.rol = nuevorol;
         }
+        
         if (estado === 'activo' || estado === 'inactivo') {
             await admin.auth().updateUser(uid, { disabled: estado === 'inactivo' });
         }
 
         await db.collection('usuarios').doc(uid).update(dataactualizar);
 
-        res.status(200).json({ ok: true, mensaje: `Usuario ${uid} actualizado.` });
+        res.status(200).json({ ok: true, mensaje: `Usuario ${uid} actualizado correctamente.` });
         
     } catch (error) {
-        console.error("Error al gestionar usuario:", error);
+        console.error("Error al actualizar usuario:", error);
         res.status(500).json({ ok: false, mensaje: "Error interno al gestionar usuario." });
+    }
+});
+
+/**
+ * Eliminar usuario
+ */
+app.delete('/api/admin/usuarios/:uid', verificaradmin, async (req, res) => {
+    const uid = req.params.uid;
+    
+    try {
+        // Delete from Firestore
+        await db.collection('usuarios').doc(uid).delete();
+        
+        // Delete from Firebase Auth
+        try {
+            await admin.auth().deleteUser(uid);
+        } catch (authError) {
+            console.warn(`Could not delete from auth: ${authError.message}`);
+        }
+        
+        res.status(200).json({ ok: true, mensaje: `Usuario ${uid} eliminado correctamente.` });
+    } catch (error) {
+        console.error("Error al eliminar usuario:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al eliminar usuario." });
+    }
+});
+
+
+// ===================================
+// 🎯 GESTIÓN DE CAMPANAS Y RETOS
+// ===================================
+
+/**
+ * Crear una nueva campaña/reto
+ */
+app.post('/api/admin/campanas', verificaradmin, async (req, res) => {
+    const { titulo, descripcion, tipo, objetivos, fechaInicio, fechaFin, criterios } = req.body;
+    
+    // Validaciones básicas
+    if (!titulo || !descripcion) {
+        return res.status(400).json({ mensaje: "Título y descripción son obligatorios." });
+    }
+    
+    try {
+        const nuevaCampana = {
+            titulo,
+            descripcion,
+            tipo: tipo || 'Reto',
+            objetivos: objetivos || [],
+            fechaInicio: fechaInicio ? new Date(fechaInicio) : new Date(),
+            fechaFin: fechaFin ? new Date(fechaFin) : null,
+            criterios: criterios || {},
+            activa: true,
+            fechaCreacion: new Date(),
+            fechaActualizacion: new Date()
+        };
+        
+        const docRef = await db.collection('campanas').add(nuevaCampana);
+        
+        console.log(`Campaña creada: ${docRef.id}`);
+        
+        res.status(201).json({ 
+            ok: true, 
+            mensaje: "Campaña creada exitosamente.",
+            id: docRef.id 
+        });
+    } catch (error) {
+        console.error("Error al crear campaña:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al crear campaña." });
+    }
+});
+
+/**
+ * Obtener todas las campañas
+ */
+app.get('/api/admin/campanas', verificaradmin, async (req, res) => {
+    try {
+        const snapshot = await db.collection('campanas')
+            .orderBy('fechaCreacion', 'desc')
+            .get();
+        
+        const campanas = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        res.status(200).json({ ok: true, campanas });
+    } catch (error) {
+        console.error("Error al obtener campañas:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener campañas." });
+    }
+});
+
+/**
+ * Obtener campañas activas para voluntarios
+ */
+app.get('/api/campanas/activas', async (req, res) => {
+    try {
+        const snapshot = await db.collection('campanas')
+            .where('activa', '==', true)
+            .orderBy('fechaCreacion', 'desc')
+            .get();
+        
+        const campanas = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        res.status(200).json({ ok: true, campanas });
+    } catch (error) {
+        console.error("Error al obtener campañas activas:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener campañas." });
+    }
+});
+
+/**
+ * Actualizar campaña
+ */
+app.patch('/api/admin/campanas/:id', verificaradmin, async (req, res) => {
+    const campañaId = req.params.id;
+    const updates = req.body;
+    
+    if (!updates || Object.keys(updates).length === 0) {
+        return res.status(400).json({ mensaje: "No se proporcionaron datos para actualizar." });
+    }
+    
+    try {
+        updates.fechaActualizacion = new Date();
+        
+        await db.collection('campanas').doc(campañaId).update(updates);
+        
+        res.status(200).json({ ok: true, mensaje: "Campaña actualizada correctamente." });
+    } catch (error) {
+        console.error("Error al actualizar campaña:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al actualizar campaña." });
+    }
+});
+
+/**
+ * Eliminar campaña
+ */
+app.delete('/api/admin/campanas/:id', verificaradmin, async (req, res) => {
+    const campañaId = req.params.id;
+    
+    try {
+        await db.collection('campanas').doc(campañaId).delete();
+        
+        res.status(200).json({ ok: true, mensaje: "Campaña eliminada correctamente." });
+    } catch (error) {
+        console.error("Error al eliminar campaña:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al eliminar campaña." });
+    }
+});
+
+/**
+ * Registrar progreso de reto por voluntario
+ */
+app.post('/api/voluntario/progreso', async (req, res) => {
+    const { voluntarioId, campanaId, progreso, observaciones } = req.body;
+    
+    if (!voluntarioId || !campanaId || progreso === undefined) {
+        return res.status(400).json({ mensaje: "Datos incompletos." });
+    }
+    
+    try {
+        const progresoData = {
+            voluntarioId,
+            campanaId,
+            progreso,
+            observaciones: observaciones || '',
+            fechaRegistro: new Date()
+        };
+        
+        const docRef = await db.collection('progresoRetos').add(progresoData);
+        
+        res.status(201).json({ 
+            ok: true, 
+            mensaje: "Progreso registrado correctamente.",
+            id: docRef.id 
+        });
+    } catch (error) {
+        console.error("Error al registrar progreso:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al registrar progreso." });
+    }
+});
+
+/**
+ * Obtener progreso de voluntarios en una campaña
+ */
+app.get('/api/admin/campanas/:id/progreso', verificaradmin, async (req, res) => {
+    const campanaId = req.params.id;
+    
+    try {
+        const snapshot = await db.collection('progresoRetos')
+            .where('campanaId', '==', campanaId)
+            .get();
+        
+        const progresoData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        res.status(200).json({ ok: true, progreso: progresoData });
+    } catch (error) {
+        console.error("Error al obtener progreso:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener progreso." });
+    }
+});
+
+/**
+ * Obtener retos y reconocimientos de un voluntario
+ */
+app.get('/api/voluntario/mis-reto', async (req, res) => {
+    const voluntarioId = req.query.voluntarioId;
+    
+    if (!voluntarioId) {
+        return res.status(400).json({ mensaje: "voluntarioId es requerido." });
+    }
+    
+    try {
+        // Get progress records for this volunteer
+        const snapshot = await db.collection('progresoRetos')
+            .where('voluntarioId', '==', voluntarioId)
+            .get();
+        
+        const misProgresos = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        // Get active campaigns
+        const campanasSnapshot = await db.collection('campanas')
+            .where('activa', '==', true)
+            .get();
+        
+        const campanas = campanasSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        res.status(200).json({ 
+            ok: true, 
+            campanas,
+            misProgresos 
+        });
+    } catch (error) {
+        console.error("Error al obtener mis retos:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener retos." });
     }
 });
 
