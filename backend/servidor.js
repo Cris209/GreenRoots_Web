@@ -257,9 +257,690 @@ app.post("/api/login", async (req, res) => {
     }
 });
 
-// ... (El resto de tus rutas como /api/arboles/registrar, /api/admin/validacion, etc.
-// se mantienen igual, ya que usan Firebase Admin SDK, no el Web SDK.)
-// ... (Tus otras rutas aquí)
+// ===================================
+// 🌳 RUTAS DEL VOLUNTARIO (Colección 'arboles')
+// ===================================
+
+/**
+ * Endpoint para registrar un árbol plantado.
+ */
+app.post('/api/arboles/registrar', upload.single('evidenciaFoto'), async (req, res) => {
+    // Todos los campos en minúsculas
+    const { voluntarioid, tipoarbol, ubicaciongps } = req.body; 
+    const fotofile = req.file; 
+
+    // 1. Validaciones
+    if (!voluntarioid || !tipoarbol || !ubicaciongps || !fotofile) {
+        return res.status(400).json({ mensaje: "Faltan datos obligatorios (ID, Tipo, GPS o Foto)." });
+    }
+
+    try {
+        // SIMULACIÓN DE SUBIDA A FIREBASE STORAGE
+        const simulatedfilename = `${voluntarioid}_${Date.now()}.jpg`;
+        const fotourl = `https://storage.firebase.com/v0/b/greenroots.appspot.com/o/${simulatedfilename}`; 
+
+        // 2. Guardar en Firestore en la colección 'arboles'
+        const nuevoregistro = {
+            voluntarioid: voluntarioid,
+            tipodearbol: tipoarbol, // minúsculas
+            ubicacion: ubicaciongps, // minúsculas
+            fotourl: fotourl, 
+            fecharegistro: new Date(),
+            estadovalidacion: 'Pendiente' // Usa Mayúscula inicial por la query del Admin
+        };
+
+        const docref = await db.collection('arboles').add(nuevoregistro);
+        
+        console.log(`Tree registered successfully:`, {
+            id: docref.id,
+            voluntarioid: voluntarioid,
+            tipodearbol: tipoarbol,
+            estadovalidacion: nuevoregistro.estadovalidacion
+        });
+        
+        res.status(201).json({ 
+            ok: true,
+            mensaje: "Árbol registrado. Pendiente de validación.", 
+            id: docref.id 
+        });
+
+    } catch (error) {
+        console.error("Error al registrar el árbol:", error);
+        res.status(500).json({ ok: false, mensaje: "Error interno del servidor al registrar árbol." });
+    }
+});
+
+/**
+ * Endpoint para simular la obtención de retos.
+ */
+/**
+ * @deprecated - Use /api/campanas/activas instead
+ * Get active challenges for volunteers (legacy endpoint)
+ */
+app.get('/api/voluntario/retos', async (req, res) => {
+    try {
+        // Get active campaigns from database
+        const snapshot = await db.collection('campanas')
+            .where('activa', '==', true)
+            .limit(10)
+            .get();
+        
+        const retosactivos = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        // For now, return empty recognitions (can be extended with real data)
+        const reconocimientos = [];
+        
+        res.status(200).json({ retosactivos, reconocimientos });
+    } catch (error) {
+        console.error("Error al obtener retos:", error);
+        // Fallback to default data
+        const retosactivos = [
+            { id: 1, titulo: "Maratón de Riego", descripcion: "Riega 10 árboles en la Zona Norte.", completado: false },
+        ];
+        res.status(200).json({ retosactivos, reconocimientos: [] });
+    }
+});
+
+// ===================================
+// ⚙️ RUTAS DEL ADMINISTRADOR
+// ===================================
+
+/**
+ * Endpoint para obtener todos los registros de árboles pendientes de validación.
+ * Protegido por verificaradmin.
+ */
+/**
+ * Endpoint para diagnosticar - obtener TODOS los registros sin filtrar
+ */
+app.get('/api/admin/validacion/all', verificaradmin, async (req, res) => {
+    try {
+        const snapshot = await db.collection('arboles').get();
+        const registros = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        console.log(`Total records in database: ${registros.length}`);
+        console.log('Records:', registros);
+        
+        res.status(200).json({ ok: true, total: registros.length, registros });
+    } catch (error) {
+        console.error("Error al obtener todos los registros:", error);
+        res.status(500).json({ ok: false, mensaje: "Error interno del servidor." });
+    }
+});
+
+app.get('/api/admin/validacion/pendientes', verificaradmin, async (req, res) => {
+    try {
+        console.log('Fetching pending validations...');
+        
+        // Query without orderBy to avoid index issues
+        const snapshot = await db.collection('arboles')
+            .where('estadovalidacion', '==', 'Pendiente')
+            .get();
+
+        const registros = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+
+        console.log(`Found ${registros.length} pending registrations`);
+        
+        // If no records found, get diagnostic info
+        if (registros.length === 0) {
+            console.warn("No records found with 'Pendiente' status");
+            
+            // Get all records for diagnostic
+            const allSnapshot = await db.collection('arboles').limit(100).get();
+            const allRecords = allSnapshot.docs.map(doc => doc.data());
+            
+            // Count status distribution
+            const statusCount = {};
+            allRecords.forEach(r => {
+                const status = (r.estadovalidacion || 'undefined').toLowerCase();
+                statusCount[status] = (statusCount[status] || 0) + 1;
+            });
+            
+            console.log('Total records in arboles collection:', allRecords.length);
+            console.log('Status distribution:', statusCount);
+        }
+        
+        res.status(200).json({ 
+            ok: true, 
+            registros,
+            total: registros.length 
+        });
+
+    } catch (error) {
+        console.error("Error al obtener registros pendientes:", error);
+        console.error("Error details:", error.message, error.stack);
+        
+        // Try to provide helpful error message
+        let errorMessage = "Error interno del servidor.";
+        if (error.code) {
+            errorMessage += ` Código: ${error.code}`;
+        }
+        if (error.message) {
+            errorMessage += ` Mensaje: ${error.message}`;
+        }
+        
+        res.status(500).json({ ok: false, mensaje: errorMessage });
+    }
+});
+
+/**
+ * Endpoint para actualizar el estado de validación (Aprobar/Rechazar).
+ * Protegido por verificaradmin.
+ */
+app.patch('/api/admin/validacion/:id', verificaradmin, async (req, res) => {
+    const registroid = req.params.id;
+    const { nuevoestado, motivorechazo } = req.body; 
+
+    if (nuevoestado !== 'Aprobado' && nuevoestado !== 'Rechazado') {
+        return res.status(400).json({ mensaje: "Estado de validación inválido." });
+    }
+    
+    const dataactualizar = {
+        estadovalidacion: nuevoestado,
+        fechavalidacion: new Date()
+    };
+
+    if (nuevoestado === 'Rechazado' && motivorechazo) {
+        dataactualizar.motivorechazo = motivorechazo; // minúsculas
+    }
+
+    try {
+        await db.collection('arboles').doc(registroid).update(dataactualizar);
+        
+        res.status(200).json({ 
+            ok: true,
+            mensaje: `Registro ${registroid} actualizado a ${nuevoestado}.` 
+        });
+
+    } catch (error) {
+        console.error(`Error al validar registro ${registroid}:`, error);
+        res.status(500).json({ ok: false, mensaje: "Error interno del servidor." });
+    }
+});
+
+// ===================================
+// 👥 GESTIÓN DE USUARIOS Y ROLES
+// ===================================
+
+/**
+ * Obtener todos los usuarios
+ */
+app.get('/api/admin/usuarios', verificaradmin, async (req, res) => {
+    try {
+        const snapshot = await db.collection('usuarios').get();
+        
+        const usuarios = await Promise.all(snapshot.docs.map(async (doc) => {
+            const userData = doc.data();
+            
+            // Get additional info from Firebase Auth
+            let authInfo = { disabled: false };
+            try {
+                const authUser = await admin.auth().getUser(doc.id);
+                authInfo = { disabled: authUser.disabled };
+            } catch (authError) {
+                console.warn(`Could not get auth info for ${doc.id}`);
+            }
+            
+            return {
+                uid: doc.id,
+                ...userData,
+                activo: !authInfo.disabled
+            };
+        }));
+        
+        res.status(200).json({ ok: true, usuarios });
+    } catch (error) {
+        console.error("Error al obtener usuarios:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener usuarios." });
+    }
+});
+
+/**
+ * Actualizar usuario (rol y/o estado)
+ */
+app.patch('/api/admin/usuarios/:uid', verificaradmin, async (req, res) => {
+    const uid = req.params.uid;
+    const { nuevorol, estado } = req.body;
+
+    if (!nuevorol && !estado) {
+        return res.status(400).json({ mensaje: "Debe especificar un nuevo rol o estado." });
+    }
+
+    try {
+        const dataactualizar = {};
+        
+        if (nuevorol) {
+            // Validate role
+            const rolesValidos = ['Voluntario', 'Administrador', 'Gobierno'];
+            if (!rolesValidos.includes(nuevorol)) {
+                return res.status(400).json({ mensaje: "Rol inválido. Roles válidos: Voluntario, Administrador, Gobierno" });
+            }
+            dataactualizar.rol = nuevorol;
+        }
+        
+        if (estado === 'activo' || estado === 'inactivo') {
+            await admin.auth().updateUser(uid, { disabled: estado === 'inactivo' });
+        }
+
+        await db.collection('usuarios').doc(uid).update(dataactualizar);
+
+        res.status(200).json({ ok: true, mensaje: `Usuario ${uid} actualizado correctamente.` });
+        
+    } catch (error) {
+        console.error("Error al actualizar usuario:", error);
+        res.status(500).json({ ok: false, mensaje: "Error interno al gestionar usuario." });
+    }
+});
+
+/**
+ * Eliminar usuario
+ */
+app.delete('/api/admin/usuarios/:uid', verificaradmin, async (req, res) => {
+    const uid = req.params.uid;
+    
+    try {
+        // Delete from Firestore
+        await db.collection('usuarios').doc(uid).delete();
+        
+        // Delete from Firebase Auth
+        try {
+            await admin.auth().deleteUser(uid);
+        } catch (authError) {
+            console.warn(`Could not delete from auth: ${authError.message}`);
+        }
+        
+        res.status(200).json({ ok: true, mensaje: `Usuario ${uid} eliminado correctamente.` });
+    } catch (error) {
+        console.error("Error al eliminar usuario:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al eliminar usuario." });
+    }
+});
+
+
+// ===================================
+// 🎯 GESTIÓN DE CAMPANAS Y RETOS
+// ===================================
+
+/**
+ * Crear una nueva campaña/reto
+ */
+app.post('/api/admin/campanas', verificaradmin, async (req, res) => {
+    const { titulo, descripcion, tipo, objetivos, fechaInicio, fechaFin, criterios } = req.body;
+    
+    // Validaciones básicas
+    if (!titulo || !descripcion) {
+        return res.status(400).json({ mensaje: "Título y descripción son obligatorios." });
+    }
+    
+    try {
+        const nuevaCampana = {
+            titulo,
+            descripcion,
+            tipo: tipo || 'Reto',
+            objetivos: objetivos || [],
+            fechaInicio: fechaInicio ? new Date(fechaInicio) : new Date(),
+            fechaFin: fechaFin ? new Date(fechaFin) : null,
+            criterios: criterios || {},
+            activa: true,
+            fechaCreacion: new Date(),
+            fechaActualizacion: new Date()
+        };
+        
+        const docRef = await db.collection('campanas').add(nuevaCampana);
+        
+        console.log(`Campaña creada: ${docRef.id}`);
+        
+        res.status(201).json({ 
+            ok: true, 
+            mensaje: "Campaña creada exitosamente.",
+            id: docRef.id 
+        });
+    } catch (error) {
+        console.error("Error al crear campaña:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al crear campaña." });
+    }
+});
+
+/**
+ * Obtener todas las campañas
+ */
+app.get('/api/admin/campanas', verificaradmin, async (req, res) => {
+    try {
+        const snapshot = await db.collection('campanas')
+            .orderBy('fechaCreacion', 'desc')
+            .get();
+        
+        const campanas = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        res.status(200).json({ ok: true, campanas });
+    } catch (error) {
+        console.error("Error al obtener campañas:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener campañas." });
+    }
+});
+
+/**
+ * Obtener campañas activas para voluntarios
+ */
+app.get('/api/campanas/activas', async (req, res) => {
+    try {
+        const snapshot = await db.collection('campanas')
+            .where('activa', '==', true)
+            .orderBy('fechaCreacion', 'desc')
+            .get();
+        
+        const campanas = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        res.status(200).json({ ok: true, campanas });
+    } catch (error) {
+        console.error("Error al obtener campañas activas:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener campañas." });
+    }
+});
+
+/**
+ * Actualizar campaña
+ */
+app.patch('/api/admin/campanas/:id', verificaradmin, async (req, res) => {
+    const campañaId = req.params.id;
+    const updates = req.body;
+    
+    if (!updates || Object.keys(updates).length === 0) {
+        return res.status(400).json({ mensaje: "No se proporcionaron datos para actualizar." });
+    }
+    
+    try {
+        updates.fechaActualizacion = new Date();
+        
+        await db.collection('campanas').doc(campañaId).update(updates);
+        
+        res.status(200).json({ ok: true, mensaje: "Campaña actualizada correctamente." });
+    } catch (error) {
+        console.error("Error al actualizar campaña:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al actualizar campaña." });
+    }
+});
+
+/**
+ * Eliminar campaña
+ */
+app.delete('/api/admin/campanas/:id', verificaradmin, async (req, res) => {
+    const campañaId = req.params.id;
+    
+    try {
+        await db.collection('campanas').doc(campañaId).delete();
+        
+        res.status(200).json({ ok: true, mensaje: "Campaña eliminada correctamente." });
+    } catch (error) {
+        console.error("Error al eliminar campaña:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al eliminar campaña." });
+    }
+});
+
+/**
+ * Registrar progreso de reto por voluntario
+ */
+app.post('/api/voluntario/progreso', async (req, res) => {
+    const { voluntarioId, campanaId, progreso, observaciones } = req.body;
+    
+    if (!voluntarioId || !campanaId || progreso === undefined) {
+        return res.status(400).json({ mensaje: "Datos incompletos." });
+    }
+    
+    try {
+        const progresoData = {
+            voluntarioId,
+            campanaId,
+            progreso,
+            observaciones: observaciones || '',
+            fechaRegistro: new Date()
+        };
+        
+        const docRef = await db.collection('progresoRetos').add(progresoData);
+        
+        res.status(201).json({ 
+            ok: true, 
+            mensaje: "Progreso registrado correctamente.",
+            id: docRef.id 
+        });
+    } catch (error) {
+        console.error("Error al registrar progreso:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al registrar progreso." });
+    }
+});
+
+/**
+ * Obtener progreso de voluntarios en una campaña
+ */
+app.get('/api/admin/campanas/:id/progreso', verificaradmin, async (req, res) => {
+    const campanaId = req.params.id;
+    
+    try {
+        const snapshot = await db.collection('progresoRetos')
+            .where('campanaId', '==', campanaId)
+            .get();
+        
+        const progresoData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        res.status(200).json({ ok: true, progreso: progresoData });
+    } catch (error) {
+        console.error("Error al obtener progreso:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener progreso." });
+    }
+});
+
+/**
+ * Obtener retos y reconocimientos de un voluntario
+ */
+app.get('/api/voluntario/mis-reto', async (req, res) => {
+    const voluntarioId = req.query.voluntarioId;
+    
+    if (!voluntarioId) {
+        return res.status(400).json({ mensaje: "voluntarioId es requerido." });
+    }
+    
+    try {
+        // Get progress records for this volunteer
+        const snapshot = await db.collection('progresoRetos')
+            .where('voluntarioId', '==', voluntarioId)
+            .get();
+        
+        const misProgresos = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        // Get active campaigns
+        const campanasSnapshot = await db.collection('campanas')
+            .where('activa', '==', true)
+            .get();
+        
+        const campanas = campanasSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        res.status(200).json({ 
+            ok: true, 
+            campanas,
+            misProgresos 
+        });
+    } catch (error) {
+        console.error("Error al obtener mis retos:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener retos." });
+    }
+});
+
+
+// ===================================
+// 📅 GESTIÓN DE EVENTOS
+// ===================================
+
+/**
+ * Crear un nuevo evento
+ */
+app.post('/api/admin/eventos', verificaradmin, async (req, res) => {
+    const { titulo, descripcion, fecha, hora, ubicacion, activo } = req.body;
+    
+    if (!titulo || !descripcion) {
+        return res.status(400).json({ mensaje: "Título y descripción son obligatorios." });
+    }
+    
+    try {
+        const nuevoEvento = {
+            titulo,
+            descripcion,
+            fecha: fecha || null,
+            hora: hora || null,
+            ubicacion: ubicacion || '',
+            activo: activo !== undefined ? activo : true,
+            fechaCreacion: new Date(),
+            fechaActualizacion: new Date()
+        };
+        
+        const docRef = await db.collection('eventos').add(nuevoEvento);
+        
+        console.log(`Evento creado: ${docRef.id}`);
+        
+        res.status(201).json({ 
+            ok: true, 
+            mensaje: "Evento creado exitosamente.",
+            id: docRef.id 
+        });
+    } catch (error) {
+        console.error("Error al crear evento:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al crear evento." });
+    }
+});
+
+/**
+ * Obtener todos los eventos
+ */
+app.get('/api/admin/eventos', verificaradmin, async (req, res) => {
+    try {
+        const snapshot = await db.collection('eventos')
+            .orderBy('fechaCreacion', 'desc')
+            .get();
+        
+        const eventos = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        res.status(200).json({ ok: true, eventos });
+    } catch (error) {
+        console.error("Error al obtener eventos:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener eventos." });
+    }
+});
+
+/**
+ * Obtener eventos activos para voluntarios
+ */
+app.get('/api/eventos/activos', async (req, res) => {
+    try {
+        console.log('Fetching active events...');
+        
+        // Try with orderBy first, but handle missing index
+        let snapshot;
+        try {
+            snapshot = await db.collection('eventos')
+                .where('activo', '==', true)
+                .orderBy('fecha', 'asc')
+                .get();
+        } catch (orderError) {
+            // If orderBy fails due to missing index, query without ordering
+            console.warn("Index missing for fecha, querying without order:", orderError.message);
+            snapshot = await db.collection('eventos')
+                .where('activo', '==', true)
+                .get();
+        }
+        
+        const eventos = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        // Sort manually if no orderBy was used
+        if (snapshot.docs.length > 0 && !snapshot.docs[0].data().fecha?.seconds) {
+            eventos.sort((a, b) => {
+                const fechaA = a.fecha || '';
+                const fechaB = b.fecha || '';
+                return fechaA.localeCompare(fechaB);
+            });
+        }
+        
+        console.log(`Found ${eventos.length} active events`);
+        res.status(200).json({ ok: true, eventos });
+        
+    } catch (error) {
+        console.error("Error al obtener eventos activos:", error);
+        console.error("Error details:", error.message, error.stack);
+        
+        let errorMessage = "Error al obtener eventos.";
+        if (error.message) {
+            errorMessage += ` ${error.message}`;
+        }
+        
+        res.status(500).json({ ok: false, mensaje: errorMessage });
+    }
+});
+
+/**
+ * Eliminar evento
+ */
+app.delete('/api/admin/eventos/:id', verificaradmin, async (req, res) => {
+    const eventoId = req.params.id;
+    
+    try {
+        await db.collection('eventos').doc(eventoId).delete();
+        
+        res.status(200).json({ ok: true, mensaje: "Evento eliminado correctamente." });
+    } catch (error) {
+        console.error("Error al eliminar evento:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al eliminar evento." });
+    }
+});
+
+/**
+ * Actualizar evento
+ */
+app.patch('/api/admin/eventos/:id', verificaradmin, async (req, res) => {
+    const eventoId = req.params.id;
+    const updates = req.body;
+    
+    if (!updates || Object.keys(updates).length === 0) {
+        return res.status(400).json({ mensaje: "No se proporcionaron datos para actualizar." });
+    }
+    
+    try {
+        updates.fechaActualizacion = new Date();
+        
+        await db.collection('eventos').doc(eventoId).update(updates);
+        
+        res.status(200).json({ ok: true, mensaje: "Evento actualizado correctamente." });
+    } catch (error) {
+        console.error("Error al actualizar evento:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al actualizar evento." });
+    }
+});
 
 // ===================================
 // 📅 GESTIÓN DE EVENTOS (Uso de Realtime Database Admin SDK para lectura de sensores - EJEMPLO)
@@ -287,9 +968,6 @@ app.get('/api/sensores/:arbolId', async (req, res) => {
         res.status(500).json({ ok: false, mensaje: "Error al obtener datos del sensor." });
     }
 });
-
-
-// ... (El resto de tus rutas aquí: /api/arboles/registrar, /api/admin/validacion, /api/voluntario/retos, etc.)
 
 // ===================================
 // INICIO DEL SERVIDOR
