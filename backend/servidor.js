@@ -14,7 +14,7 @@ const app = express();
 const corsOptions = {
     origin: '*', // In production, replace with your frontend URL
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-User-Rol'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-User-Rol'], // 'Authorization' es ahora esencial
     credentials: false
 };
 app.use(cors(corsOptions));
@@ -65,6 +65,86 @@ const MAX_ATTEMPTS = 3;
 const LOCKOUT_TIME_MS = 10 * 60 * 1000;
 
 // ===================================
+// FUNCIONES DE UTILIDAD PARA AUTHENTICACIÓN
+// ===================================
+
+/**
+ * Obtiene el rol del usuario desde Firestore
+ * @param {string} uid El UID del usuario
+ * @returns {Promise<string|null>} El rol del usuario o null
+ */
+async function obtenerRolDeUsuario(uid) {
+    try {
+        const doc = await db.collection("usuarios").doc(uid).get();
+        return doc.exists ? doc.data().rol : null;
+    } catch (e) {
+        console.error("Error fetching user role:", e);
+        return null;
+    }
+}
+
+// ===================================
+// MIDDLEWARE DE SEGURIDAD (OPCIÓN 1 IMPLEMENTADA)
+// ===================================
+
+/**
+ * Middleware para verificar el token de Firebase.
+ * Adjunta el ID Token decodificado a req.user.
+ */
+async function autenticarToken(req, res, next) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ ok: false, mensaje: "Acceso denegado. Se requiere token." });
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+
+    try {
+        // Verifica y decodifica el token usando Firebase Admin SDK
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        req.user = decodedToken; // El token verificado contiene el uid, email, etc.
+        req.uid = decodedToken.uid; // Alias para fácil acceso
+        
+        // Opcionalmente, adjunta el rol desde Firestore para simplificar las verificaciones posteriores
+        const rol = await obtenerRolDeUsuario(req.uid);
+        if (rol) {
+            req.user.rol = rol;
+        } else {
+            console.warn(`Rol no encontrado para UID: ${req.uid}`);
+        }
+
+        next();
+    } catch (error) {
+        console.error("Error al verificar token:", error);
+        // Firebase Auth errors: auth/id-token-expired, auth/invalid-id-token
+        return res.status(401).json({ ok: false, mensaje: "Token inválido o expirado." });
+    }
+}
+
+
+/**
+ * Middleware de Verificación de Administrador.
+ * Debe ejecutarse *después* de autenticarToken.
+ */
+function verificaradmin(req, res, next) {
+    // El rol ya está adjunto a req.user si autenticarToken se ejecutó correctamente
+    const rolUsuario = req.user?.rol; 
+    
+    console.log(`verificaradmin - Verified role from token claims/firestore: ${rolUsuario}`);
+    
+    // Verificamos si el rol, en minúsculas, es 'administrador'
+    if (rolUsuario && rolUsuario.toLowerCase() === 'administrador') {
+        console.log('Admin access granted');
+        next();
+    } else {
+        console.error(`Access denied. UID: ${req.uid}, Role: ${rolUsuario}`);
+        // Utilizamos 403 Forbidden ya que el usuario está autenticado, pero no autorizado.
+        res.status(403).json({ ok: false, mensaje: "Acceso denegado. Se requiere rol de Administrador." });
+    }
+}
+
+
+// ===================================
 // FUNCIONES DE VALIDACIÓN DE SEGURIDAD (Sin cambios)
 // ===================================
 
@@ -92,30 +172,13 @@ function validatePassword(password) {
     
     if (password.length < 8) return "La contraseña debe tener al menos 8 caracteres.";
     if (!passwordPattern.test(password)) {
-          return "La contraseña debe incluir mayúsculas, minúsculas, números y al menos un carácter especial.";
+        return "La contraseña debe incluir mayúsculas, minúsculas, números y al menos un carácter especial.";
     }
     return null;
 }
-// Middleware de Verificación de Administrador
-function verificaradmin(req, res, next) {
-    // HTTP headers are case-insensitive, check for both variations
-    const rolUsuario = req.headers['x-user-rol'] || req.headers['X-User-Rol'];
-    
-    console.log(`verificaradmin - Received role: ${rolUsuario}`);
-    
-    // Verificamos si el rol, en minúsculas, es 'administrador'
-    if (rolUsuario && rolUsuario.toLowerCase() === 'administrador') {
-        console.log('Admin access granted');
-        next();
-    } else {
-        console.error(`Access denied. Role: ${rolUsuario}, Headers:`, req.headers);
-        res.status(403).json({ ok: false, mensaje: "Acceso denegado. Se requiere rol de Administrador." });
-    }
-}
-
 
 // ===================================
-// ⚙️ NUEVA RUTA: OBTENER CONFIGURACIÓN FIREBASE WEB
+// ⚙️ RUTA: OBTENER CONFIGURACIÓN FIREBASE WEB
 // ===================================
 
 /**
@@ -215,6 +278,7 @@ app.post("/api/login", async (req, res) => {
         }
         
         let uid;
+        let idToken; // Almacenará el token de autenticación
 
         // --- PASO 3: AUTENTICAR CON FIREBASE REST API ---
         try {
@@ -223,6 +287,7 @@ app.post("/api/login", async (req, res) => {
             
             delete loginAttempts[email]; // Éxito: borramos intentos fallidos
             uid = authResponse.data.localId;
+            idToken = authResponse.data.idToken; // Captura el ID Token
             
         } catch (authError) {
             // Fallo: Incrementar contador
@@ -243,6 +308,7 @@ app.post("/api/login", async (req, res) => {
         res.json({ 
             ok: true, 
             mensaje: "Sesión iniciada", 
+            token: idToken, // ¡Devuelve el token!
             usuario: { 
                 id: uid, // Include UID for frontend to use as identifier
                 email: usuario.email, 
@@ -263,15 +329,18 @@ app.post("/api/login", async (req, res) => {
 
 /**
  * Endpoint para registrar un árbol plantado.
+ * 💡 RUTA PROTEGIDA
  */
-app.post('/api/arboles/registrar', upload.single('evidenciaFoto'), async (req, res) => {
+app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto'), async (req, res) => {
     // Todos los campos en minúsculas
-    const { voluntarioid, tipoarbol, ubicaciongps } = req.body; 
+    // Usamos req.uid del token para asegurarnos de la identidad
+    const { tipoarbol, ubicaciongps } = req.body; 
+    const voluntarioid = req.uid; // Usamos el ID verificado del token
     const fotofile = req.file; 
 
     // 1. Validaciones
     if (!voluntarioid || !tipoarbol || !ubicaciongps || !fotofile) {
-        return res.status(400).json({ mensaje: "Faltan datos obligatorios (ID, Tipo, GPS o Foto)." });
+        return res.status(400).json({ mensaje: "Faltan datos obligatorios (Tipo, GPS o Foto)." });
     }
 
     try {
@@ -311,7 +380,7 @@ app.post('/api/arboles/registrar', upload.single('evidenciaFoto'), async (req, r
 });
 
 /**
- * Endpoint para simular la obtención de retos.
+ * Endpoint para simular la obtención de retos. (Ruta pública, no requiere token)
  */
 /**
  * @deprecated - Use /api/campanas/activas instead
@@ -350,12 +419,12 @@ app.get('/api/voluntario/retos', async (req, res) => {
 
 /**
  * Endpoint para obtener todos los registros de árboles pendientes de validación.
- * Protegido por verificaradmin.
+ * 💡 RUTA PROTEGIDA con autenticarToken y verificaradmin.
  */
 /**
  * Endpoint para diagnosticar - obtener TODOS los registros sin filtrar
  */
-app.get('/api/admin/validacion/all', verificaradmin, async (req, res) => {
+app.get('/api/admin/validacion/all', autenticarToken, verificaradmin, async (req, res) => {
     try {
         const snapshot = await db.collection('arboles').get();
         const registros = snapshot.docs.map(doc => ({
@@ -373,7 +442,11 @@ app.get('/api/admin/validacion/all', verificaradmin, async (req, res) => {
     }
 });
 
-app.get('/api/admin/validacion/pendientes', verificaradmin, async (req, res) => {
+/**
+ * Obtener pendientes de validación.
+ * 💡 RUTA PROTEGIDA
+ */
+app.get('/api/admin/validacion/pendientes', autenticarToken, verificaradmin, async (req, res) => {
     try {
         console.log('Fetching pending validations...');
         
@@ -433,9 +506,9 @@ app.get('/api/admin/validacion/pendientes', verificaradmin, async (req, res) => 
 
 /**
  * Endpoint para actualizar el estado de validación (Aprobar/Rechazar).
- * Protegido por verificaradmin.
+ * 💡 RUTA PROTEGIDA
  */
-app.patch('/api/admin/validacion/:id', verificaradmin, async (req, res) => {
+app.patch('/api/admin/validacion/:id', autenticarToken, verificaradmin, async (req, res) => {
     const registroid = req.params.id;
     const { nuevoestado, motivorechazo } = req.body; 
 
@@ -472,8 +545,9 @@ app.patch('/api/admin/validacion/:id', verificaradmin, async (req, res) => {
 
 /**
  * Obtener todos los usuarios
+ * 💡 RUTA PROTEGIDA
  */
-app.get('/api/admin/usuarios', verificaradmin, async (req, res) => {
+app.get('/api/admin/usuarios', autenticarToken, verificaradmin, async (req, res) => {
     try {
         const snapshot = await db.collection('usuarios').get();
         
@@ -505,8 +579,9 @@ app.get('/api/admin/usuarios', verificaradmin, async (req, res) => {
 
 /**
  * Actualizar usuario (rol y/o estado)
+ * 💡 RUTA PROTEGIDA
  */
-app.patch('/api/admin/usuarios/:uid', verificaradmin, async (req, res) => {
+app.patch('/api/admin/usuarios/:uid', autenticarToken, verificaradmin, async (req, res) => {
     const uid = req.params.uid;
     const { nuevorol, estado } = req.body;
 
@@ -542,8 +617,9 @@ app.patch('/api/admin/usuarios/:uid', verificaradmin, async (req, res) => {
 
 /**
  * Eliminar usuario
+ * 💡 RUTA PROTEGIDA
  */
-app.delete('/api/admin/usuarios/:uid', verificaradmin, async (req, res) => {
+app.delete('/api/admin/usuarios/:uid', autenticarToken, verificaradmin, async (req, res) => {
     const uid = req.params.uid;
     
     try {
@@ -571,8 +647,9 @@ app.delete('/api/admin/usuarios/:uid', verificaradmin, async (req, res) => {
 
 /**
  * Crear una nueva campaña/reto
+ * 💡 RUTA PROTEGIDA
  */
-app.post('/api/admin/campanas', verificaradmin, async (req, res) => {
+app.post('/api/admin/campanas', autenticarToken, verificaradmin, async (req, res) => {
     const { titulo, descripcion, tipo, objetivos, fechaInicio, fechaFin, criterios } = req.body;
     
     // Validaciones básicas
@@ -611,8 +688,9 @@ app.post('/api/admin/campanas', verificaradmin, async (req, res) => {
 
 /**
  * Obtener todas las campañas
+ * 💡 RUTA PROTEGIDA
  */
-app.get('/api/admin/campanas', verificaradmin, async (req, res) => {
+app.get('/api/admin/campanas', autenticarToken, verificaradmin, async (req, res) => {
     try {
         const snapshot = await db.collection('campanas')
             .orderBy('fechaCreacion', 'desc')
@@ -631,7 +709,7 @@ app.get('/api/admin/campanas', verificaradmin, async (req, res) => {
 });
 
 /**
- * Obtener campañas activas para voluntarios
+ * Obtener campañas activas para voluntarios (Ruta pública, no requiere token)
  */
 app.get('/api/campanas/activas', async (req, res) => {
     try {
@@ -654,8 +732,9 @@ app.get('/api/campanas/activas', async (req, res) => {
 
 /**
  * Actualizar campaña
+ * 💡 RUTA PROTEGIDA
  */
-app.patch('/api/admin/campanas/:id', verificaradmin, async (req, res) => {
+app.patch('/api/admin/campanas/:id', autenticarToken, verificaradmin, async (req, res) => {
     const campañaId = req.params.id;
     const updates = req.body;
     
@@ -677,8 +756,9 @@ app.patch('/api/admin/campanas/:id', verificaradmin, async (req, res) => {
 
 /**
  * Eliminar campaña
+ * 💡 RUTA PROTEGIDA
  */
-app.delete('/api/admin/campanas/:id', verificaradmin, async (req, res) => {
+app.delete('/api/admin/campanas/:id', autenticarToken, verificaradmin, async (req, res) => {
     const campañaId = req.params.id;
     
     try {
@@ -693,9 +773,12 @@ app.delete('/api/admin/campanas/:id', verificaradmin, async (req, res) => {
 
 /**
  * Registrar progreso de reto por voluntario
+ * 💡 RUTA PROTEGIDA
  */
-app.post('/api/voluntario/progreso', async (req, res) => {
-    const { voluntarioId, campanaId, progreso, observaciones } = req.body;
+app.post('/api/voluntario/progreso', autenticarToken, async (req, res) => {
+    // Usamos el ID verificado del token
+    const voluntarioId = req.uid; 
+    const { campanaId, progreso, observaciones } = req.body;
     
     if (!voluntarioId || !campanaId || progreso === undefined) {
         return res.status(400).json({ mensaje: "Datos incompletos." });
@@ -725,8 +808,9 @@ app.post('/api/voluntario/progreso', async (req, res) => {
 
 /**
  * Obtener progreso de voluntarios en una campaña
+ * 💡 RUTA PROTEGIDA
  */
-app.get('/api/admin/campanas/:id/progreso', verificaradmin, async (req, res) => {
+app.get('/api/admin/campanas/:id/progreso', autenticarToken, verificaradmin, async (req, res) => {
     const campanaId = req.params.id;
     
     try {
@@ -748,11 +832,14 @@ app.get('/api/admin/campanas/:id/progreso', verificaradmin, async (req, res) => 
 
 /**
  * Obtener retos y reconocimientos de un voluntario
+ * 💡 RUTA PROTEGIDA
  */
-app.get('/api/voluntario/mis-reto', async (req, res) => {
-    const voluntarioId = req.query.voluntarioId;
+app.get('/api/voluntario/mis-reto', autenticarToken, async (req, res) => {
+    // Usamos el ID verificado del token
+    const voluntarioId = req.uid; 
     
     if (!voluntarioId) {
+        // Esto no debería suceder si autenticarToken funciona, pero es un buen fallback
         return res.status(400).json({ mensaje: "voluntarioId es requerido." });
     }
     
@@ -795,8 +882,9 @@ app.get('/api/voluntario/mis-reto', async (req, res) => {
 
 /**
  * Crear un nuevo evento
+ * 💡 RUTA PROTEGIDA
  */
-app.post('/api/admin/eventos', verificaradmin, async (req, res) => {
+app.post('/api/admin/eventos', autenticarToken, verificaradmin, async (req, res) => {
     const { titulo, descripcion, fecha, hora, ubicacion, activo } = req.body;
     
     if (!titulo || !descripcion) {
@@ -832,8 +920,9 @@ app.post('/api/admin/eventos', verificaradmin, async (req, res) => {
 
 /**
  * Obtener todos los eventos
+ * 💡 RUTA PROTEGIDA
  */
-app.get('/api/admin/eventos', verificaradmin, async (req, res) => {
+app.get('/api/admin/eventos', autenticarToken, verificaradmin, async (req, res) => {
     try {
         const snapshot = await db.collection('eventos')
             .orderBy('fechaCreacion', 'desc')
@@ -852,7 +941,7 @@ app.get('/api/admin/eventos', verificaradmin, async (req, res) => {
 });
 
 /**
- * Obtener eventos activos para voluntarios
+ * Obtener eventos activos para voluntarios (Ruta pública, no requiere token)
  */
 app.get('/api/eventos/activos', async (req, res) => {
     try {
@@ -905,8 +994,9 @@ app.get('/api/eventos/activos', async (req, res) => {
 
 /**
  * Eliminar evento
+ * 💡 RUTA PROTEGIDA
  */
-app.delete('/api/admin/eventos/:id', verificaradmin, async (req, res) => {
+app.delete('/api/admin/eventos/:id', autenticarToken, verificaradmin, async (req, res) => {
     const eventoId = req.params.id;
     
     try {
@@ -921,8 +1011,9 @@ app.delete('/api/admin/eventos/:id', verificaradmin, async (req, res) => {
 
 /**
  * Actualizar evento
+ * 💡 RUTA PROTEGIDA
  */
-app.patch('/api/admin/eventos/:id', verificaradmin, async (req, res) => {
+app.patch('/api/admin/eventos/:id', autenticarToken, verificaradmin, async (req, res) => {
     const eventoId = req.params.id;
     const updates = req.body;
     
@@ -942,32 +1033,6 @@ app.patch('/api/admin/eventos/:id', verificaradmin, async (req, res) => {
     }
 });
 
-// ===================================
-// 📅 GESTIÓN DE EVENTOS (Uso de Realtime Database Admin SDK para lectura de sensores - EJEMPLO)
-// ===================================
-
-/**
- * Endpoint para obtener datos de un sensor específico desde Realtime Database.
- * Idealmente usarías esto para que el backend filtre o procese los datos.
- */
-app.get('/api/sensores/:arbolId', async (req, res) => {
-    const arbolId = req.params.arbolId;
-    const path = `/sensores/arbol_${arbolId}`;
-
-    try {
-        const snapshot = await realtimeDb.ref(path).once('value');
-        const data = snapshot.val();
-
-        if (!data) {
-            return res.status(404).json({ ok: false, mensaje: `No se encontraron datos para el árbol ID: ${arbolId}` });
-        }
-
-        res.status(200).json({ ok: true, datosSensor: data });
-    } catch (error) {
-        console.error(`Error al leer sensor ${arbolId} de Realtime DB:`, error);
-        res.status(500).json({ ok: false, mensaje: "Error al obtener datos del sensor." });
-    }
-});
 
 // ===================================
 // INICIO DEL SERVIDOR
