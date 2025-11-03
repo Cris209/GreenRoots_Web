@@ -132,14 +132,16 @@ function verificaradmin(req, res, next) {
     
     console.log(`verificaradmin - Verified role from token claims/firestore: ${rolUsuario}`);
     
-    // Verificamos si el rol, en minúsculas, es 'administrador'
-    if (rolUsuario && rolUsuario.toLowerCase() === 'administrador') {
-        console.log('Admin access granted');
+    const rolLower = rolUsuario?.toLowerCase();
+
+    // Verificamos si el rol, en minúsculas, es 'administrador' O 'gobierno'
+    if (rolLower && (rolLower === 'administrador' || rolLower === 'gobierno')) { // <-- ¡ESTE ES EL CAMBIO CLAVE!
+        console.log('Admin/Gobierno access granted');
         next();
     } else {
         console.error(`Access denied. UID: ${req.uid}, Role: ${rolUsuario}`);
-        // Utilizamos 403 Forbidden ya que el usuario está autenticado, pero no autorizado.
-        res.status(403).json({ ok: false, mensaje: "Acceso denegado. Se requiere rol de Administrador." });
+        // Mensaje de error más descriptivo
+        res.status(403).json({ ok: false, mensaje: "Acceso denegado. Se requiere rol de Administrador o Gobierno." });
     }
 }
 
