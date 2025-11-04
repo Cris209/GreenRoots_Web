@@ -426,7 +426,6 @@ app.get('/api/arboles/voluntario/:voluntarioId', autenticarToken, async (req, re
     const voluntarioId = req.params.voluntarioId;
     
     // **VERIFICACIÓN DE SEGURIDAD CLAVE**
-    // Se asegura de que el usuario logueado (req.user.uid) solo pueda ver sus propios árboles.
     if (req.user.uid !== voluntarioId) {
         return res.status(403).json({ mensaje: "Acceso denegado: No tienes permiso para ver estos árboles." });
     }
@@ -434,8 +433,8 @@ app.get('/api/arboles/voluntario/:voluntarioId', autenticarToken, async (req, re
     try {
         const arbolesRef = db.collection('arboles');
         
-        // La consulta de Firebase: Busca donde 'voluntarioId' coincida con el ID proporcionado
-        const snapshot = await arbolesRef.where('voluntarioId', '==', voluntarioId).get();
+        // 🚨 CORRECCIÓN: Usar 'voluntarioid' (todo minúscula) para que coincida con la clave usada en el registro.
+        const snapshot = await arbolesRef.where('voluntarioid', '==', voluntarioId).get();
 
         const arboles = [];
         snapshot.forEach(doc => {
