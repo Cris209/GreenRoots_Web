@@ -414,6 +414,39 @@ app.get('/api/voluntario/retos', async (req, res) => {
         res.status(200).json({ retosactivos, reconocimientos: [] });
     }
 });
+/**
+ * Obtener árboles por ID de Voluntario
+ * La colección de Firebase se llama 'arboles' y el campo del voluntario es 'voluntarioId'.
+ * 💡 RUTA PROTEGIDA (asume que la función de autenticación está definida)
+ */
+app.get('/api/arboles/voluntario/:voluntarioId', autenticarToken, async (req, res) => {
+    const voluntarioId = req.params.voluntarioId;
+    
+    // Opcional: Verificar que el ID del token coincida con el ID solicitado (seguridad)
+    if (req.user.uid !== voluntarioId) {
+        return res.status(403).json({ mensaje: "Acceso denegado: No tienes permiso para ver estos árboles." });
+    }
+
+    try {
+        // Realiza la consulta filtrada en la colección 'arboles'
+        const arbolesRef = db.collection('arboles');
+        
+        // 🚨 Filtra por el campo del ID del voluntario. Asumo que el campo se llama 'voluntarioId'
+        const snapshot = await arbolesRef.where('voluntarioId', '==', voluntarioId).get();
+
+        const arboles = [];
+        snapshot.forEach(doc => {
+            // Incluye el ID del documento
+            arboles.push({ id: doc.id, ...doc.data() }); 
+        });
+
+        res.status(200).json({ ok: true, arboles: arboles });
+
+    } catch (error) {
+        console.error("Error al obtener árboles del voluntario:", error);
+        res.status(500).json({ mensaje: "Error interno del servidor al obtener árboles." });
+    }
+});
 
 // ===================================
 // ⚙️ RUTAS DEL ADMINISTRADOR
