@@ -414,25 +414,28 @@ app.get('/api/voluntario/retos', async (req, res) => {
         res.status(200).json({ retosactivos, reconocimientos: [] });
     }
 });
+// servidor.js
+
 /**
  * Obtener árboles por ID de Voluntario
- * La colección de Firebase se llama 'arboles' y el campo del voluntario es 'voluntarioId'.
- * 💡 RUTA PROTEGIDA (asume que la función de autenticación está definida)
+ * Colección: 'arboles'
+ * Campo de filtro: 'voluntarioId'
+ * 💡 RUTA PROTEGIDA
  */
-app.get('/api/arboles/voluntario/:voluntarioid', autenticarToken, async (req, res) => {
-    const voluntarioId = req.params.voluntarioid;
+app.get('/api/arboles/voluntario/:voluntarioId', autenticarToken, async (req, res) => {
+    const voluntarioId = req.params.voluntarioId;
     
-    // Opcional: Verificar que el ID del token coincida con el ID solicitado (seguridad)
-    if (req.user.uid !== voluntarioid) {
+    // **VERIFICACIÓN DE SEGURIDAD CLAVE**
+    // Se asegura de que el usuario logueado (req.user.uid) solo pueda ver sus propios árboles.
+    if (req.user.uid !== voluntarioId) {
         return res.status(403).json({ mensaje: "Acceso denegado: No tienes permiso para ver estos árboles." });
     }
 
     try {
-        // Realiza la consulta filtrada en la colección 'arboles'
         const arbolesRef = db.collection('arboles');
         
-        // 🚨 Filtra por el campo del ID del voluntario. Asumo que el campo se llama 'voluntarioId'
-        const snapshot = await arbolesRef.where('voluntarioid', '==', voluntarioid).get();
+        // La consulta de Firebase: Busca donde 'voluntarioId' coincida con el ID proporcionado
+        const snapshot = await arbolesRef.where('voluntarioId', '==', voluntarioId).get();
 
         const arboles = [];
         snapshot.forEach(doc => {
