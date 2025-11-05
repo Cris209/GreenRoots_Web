@@ -58,7 +58,6 @@ try {
 
 const db = admin.firestore();
 const realtimeDb = admin.database(); // Inicializa Realtime Database Admin SDK
-const bucket = admin.storage().bucket(FIREBASE_STORAGE_BUCKET);
 
 // Almacenamiento temporal para el bloqueo de sesiones (Rate Limiting)
 const loginAttempts = {}; // { email: { count: 0, time: Date } }
@@ -334,6 +333,12 @@ app.post("/api/login", async (req, res) => {
  * Endpoint para registrar un árbol plantado.
  * 💡 RUTA PROTEGIDA
  */
+// servidor.js
+
+/**
+ * Endpoint para registrar un árbol plantado, guardando la foto en Base64 en Firestore.
+ * 💡 RUTA PROTEGIDA (NO USA FIREBASE STORAGE)
+ */
 app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto'), async (req, res) => {
     
     const { tipoarbol, ubicaciongps } = req.body; 
@@ -345,48 +350,26 @@ app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto
     }
 
     try {
-        // --- Lógica de Subida a Firebase Storage ---
-        const fileExtension = fotofile.originalname.split('.').pop();
-        const filename = `arboles_evidencia/${voluntarioid}_${Date.now()}.${fileExtension}`;
-        const file = bucket.file(filename);
-
-        // 1. Envolver la subida en una promesa para usar async/await
-        const fotourl = await new Promise((resolve, reject) => {
-            const stream = file.createWriteStream({
-                metadata: {
-                    contentType: fotofile.mimetype
-                }
-            });
-
-            stream.on('error', (err) => {
-                console.error('Error al subir a Storage:', err);
-                reject(new Error("Error al subir la foto de evidencia."));
-            });
-
-            stream.on('finish', async () => {
-                try {
-                    // 2. Hacer el archivo público
-                    await file.makePublic(); 
-                    
-                    // 3. Obtener la URL de acceso público (formato correcto de Google Cloud Storage)
-                    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filename}`;
-                    resolve(publicUrl);
-                } catch (e) {
-                    reject(e);
-                }
-            });
-
-            stream.end(fotofile.buffer);
-        });
-
+        // --- 🚨 Lógica de Conversión a Base64 (Data URI) ---
+        // 1. Convertir el buffer de la imagen a Base64
+        const b64 = fotofile.buffer.toString("base64");
+        
+        // 2. Crear el Data URI completo (ej: data:image/jpeg;base64,...)
+        // Esta cadena se guarda en el campo 'fotourl' y es la que el frontend usará para mostrar la imagen.
+        const dataURI = `data:${fotofile.mimetype};base64,${b64}`;
+        
+        // Opcional: ADVERTENCIA si la imagen es demasiado grande (cercana al límite de 1MB de Firestore)
+        if (dataURI.length > 900000) { 
+             console.warn(`ADVERTENCIA: Imagen grande (${dataURI.length} chars). Podría exceder el límite de 1MB de Firestore.`);
+        }
         // ------------------------------------------
 
-        // 4. Guardar en Firestore con la URL REAL
+        // 3. Guardar en Firestore el Base64 (Data URI)
         const nuevoregistro = {
             voluntarioid: voluntarioid,
             tipodearbol: tipoarbol,
             ubicacion: ubicaciongps,
-            fotourl: fotourl, // URL REAL Y PÚBLICA
+            fotourl: dataURI, // ✅ Data URI Base64 guardada en el documento
             fecharegistro: new Date(),
             estadovalidacion: 'Pendiente'
         };
@@ -395,7 +378,7 @@ app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto
         
         res.status(201).json({ 
             ok: true,
-            mensaje: "Árbol registrado y foto subida exitosamente. Pendiente de validación.", 
+            mensaje: "Árbol registrado exitosamente. La foto ha sido guardada en la base de datos.", 
             id: docref.id 
         });
 
