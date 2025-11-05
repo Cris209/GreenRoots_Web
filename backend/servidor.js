@@ -58,6 +58,7 @@ try {
 
 const db = admin.firestore();
 const realtimeDb = admin.database(); // Inicializa Realtime Database Admin SDK
+const bucket = admin.storage().bucket(FIREBASE_STORAGE_BUCKET);
 
 // Almacenamiento temporal para el bloqueo de sesiones (Rate Limiting)
 const loginAttempts = {}; // { email: { count: 0, time: Date } }
@@ -334,50 +335,73 @@ app.post("/api/login", async (req, res) => {
  * 💡 RUTA PROTEGIDA
  */
 app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto'), async (req, res) => {
-    // Todos los campos en minúsculas
-    // Usamos req.uid del token para asegurarnos de la identidad
+    
     const { tipoarbol, ubicaciongps } = req.body; 
-    const voluntarioid = req.uid; // Usamos el ID verificado del token
+    const voluntarioid = req.uid; 
     const fotofile = req.file; 
 
-    // 1. Validaciones
     if (!voluntarioid || !tipoarbol || !ubicaciongps || !fotofile) {
         return res.status(400).json({ mensaje: "Faltan datos obligatorios (Tipo, GPS o Foto)." });
     }
 
     try {
-        // SIMULACIÓN DE SUBIDA A FIREBASE STORAGE
-        const simulatedfilename = `${voluntarioid}_${Date.now()}.jpg`;
-        const fotourl = `https://storage.firebase.com/v0/b/greenroots.appspot.com/o/${simulatedfilename}`; 
+        // --- Lógica de Subida a Firebase Storage ---
+        const fileExtension = fotofile.originalname.split('.').pop();
+        const filename = `arboles_evidencia/${voluntarioid}_${Date.now()}.${fileExtension}`;
+        const file = bucket.file(filename);
 
-        // 2. Guardar en Firestore en la colección 'arboles'
+        // 1. Envolver la subida en una promesa para usar async/await
+        const fotourl = await new Promise((resolve, reject) => {
+            const stream = file.createWriteStream({
+                metadata: {
+                    contentType: fotofile.mimetype
+                }
+            });
+
+            stream.on('error', (err) => {
+                console.error('Error al subir a Storage:', err);
+                reject(new Error("Error al subir la foto de evidencia."));
+            });
+
+            stream.on('finish', async () => {
+                try {
+                    // 2. Hacer el archivo público
+                    await file.makePublic(); 
+                    
+                    // 3. Obtener la URL de acceso público (formato correcto de Google Cloud Storage)
+                    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filename}`;
+                    resolve(publicUrl);
+                } catch (e) {
+                    reject(e);
+                }
+            });
+
+            stream.end(fotofile.buffer);
+        });
+
+        // ------------------------------------------
+
+        // 4. Guardar en Firestore con la URL REAL
         const nuevoregistro = {
             voluntarioid: voluntarioid,
-            tipodearbol: tipoarbol, // minúsculas
-            ubicacion: ubicaciongps, // minúsculas
-            fotourl: fotourl, 
+            tipodearbol: tipoarbol,
+            ubicacion: ubicaciongps,
+            fotourl: fotourl, // URL REAL Y PÚBLICA
             fecharegistro: new Date(),
-            estadovalidacion: 'Pendiente' // Usa Mayúscula inicial por la query del Admin
+            estadovalidacion: 'Pendiente'
         };
 
         const docref = await db.collection('arboles').add(nuevoregistro);
         
-        console.log(`Tree registered successfully:`, {
-            id: docref.id,
-            voluntarioid: voluntarioid,
-            tipodearbol: tipoarbol,
-            estadovalidacion: nuevoregistro.estadovalidacion
-        });
-        
         res.status(201).json({ 
             ok: true,
-            mensaje: "Árbol registrado. Pendiente de validación.", 
+            mensaje: "Árbol registrado y foto subida exitosamente. Pendiente de validación.", 
             id: docref.id 
         });
 
     } catch (error) {
-        console.error("Error al registrar el árbol:", error);
-        res.status(500).json({ ok: false, mensaje: "Error interno del servidor al registrar árbol." });
+        console.error("Error general en el registro del árbol:", error);
+        res.status(500).json({ ok: false, mensaje: error.message || "Error interno del servidor al registrar árbol." });
     }
 });
 
