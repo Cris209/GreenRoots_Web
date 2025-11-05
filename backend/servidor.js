@@ -93,7 +93,7 @@ async function obtenerRolDeUsuario(uid) {
 }
 
 // ===================================
-// MIDDLEWARE DE SEGURIDAD
+// MIDDLEWARE DE SEGURIDAD (OPCIÓN 1 IMPLEMENTADA)
 // ===================================
 
 /**
@@ -114,7 +114,7 @@ async function autenticarToken(req, res, next) {
         req.user = decodedToken; // El token verificado contiene el uid, email, etc.
         req.uid = decodedToken.uid; // Alias para fácil acceso
         
-        // Adjunta el rol desde Firestore para simplificar las verificaciones posteriores
+        // Opcionalmente, adjunta el rol desde Firestore para simplificar las verificaciones posteriores
         const rol = await obtenerRolDeUsuario(req.uid);
         if (rol) {
             req.user.rol = rol;
@@ -136,6 +136,7 @@ async function autenticarToken(req, res, next) {
  * Debe ejecutarse *después* de autenticarToken.
  */
 function verificaradmin(req, res, next) {
+    // El rol ya está adjunto a req.user si autenticarToken se ejecutó correctamente
     const rolUsuario = req.user?.rol; 
     
     console.log(`verificaradmin - Verified role from token claims/firestore: ${rolUsuario}`);
@@ -143,18 +144,19 @@ function verificaradmin(req, res, next) {
     const rolLower = rolUsuario?.toLowerCase();
 
     // Verificamos si el rol, en minúsculas, es 'administrador' O 'gobierno'
-    if (rolLower && (rolLower === 'administrador' || rolLower === 'gobierno')) { 
+    if (rolLower && (rolLower === 'administrador' || rolLower === 'gobierno')) { // <-- ¡ESTE ES EL CAMBIO CLAVE!
         console.log('Admin/Gobierno access granted');
         next();
     } else {
         console.error(`Access denied. UID: ${req.uid}, Role: ${rolUsuario}`);
+        // Mensaje de error más descriptivo
         res.status(403).json({ ok: false, mensaje: "Acceso denegado. Se requiere rol de Administrador o Gobierno." });
     }
 }
 
 
 // ===================================
-// FUNCIONES DE VALIDACIÓN DE SEGURIDAD 
+// FUNCIONES DE VALIDACIÓN DE SEGURIDAD (Sin cambios)
 // ===================================
 
 function validateNombre(nombre) {
@@ -214,7 +216,7 @@ app.get("/api/firebase/config", (req, res) => {
 });
 
 // ===================================
-// RUTAS DE AUTENTICACIÓN
+// RUTAS DE AUTENTICACIÓN (Sin cambios funcionales)
 // ===================================
 
 // 📌 Ruta: REGISTRO
@@ -337,6 +339,16 @@ app.post("/api/login", async (req, res) => {
 // ===================================
 
 /**
+ * Endpoint para registrar un árbol plantado.
+ * 💡 RUTA PROTEGIDA
+ */
+// servidor.js
+
+/**
+ * Endpoint para registrar un árbol plantado, guardando la foto en Base64 en Firestore.
+ * 💡 RUTA PROTEGIDA (NO USA FIREBASE STORAGE)
+ */
+/**
  * Endpoint para registrar un árbol plantado usando Cloudinary.
  */
 app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto'), async (req, res) => {
@@ -351,16 +363,21 @@ app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto
 
     try {
         // --- 🚨 Lógica de Subida a Cloudinary ---
+        
+        // 1. Convertir el buffer de la imagen a un Data URI (formato que Cloudinary acepta)
         const b64 = Buffer.from(fotofile.buffer).toString("base64");
         let dataURI = "data:" + fotofile.mimetype + ";base64," + b64;
         
+        // 2. Definir una ID única para la imagen
         const publicId = `greenroots/arboles/${voluntarioid}_${Date.now()}`;
 
+        // 3. Subir el Data URI a Cloudinary
         const uploadResult = await cloudinary.uploader.upload(dataURI, {
             public_id: publicId,
-            folder: "greenroots_arboles"
+            folder: "greenroots_arboles" // Opcional: Organiza las fotos en una carpeta
         });
         
+        // La URL de acceso público que necesitamos para guardar en Firestore
         const fotourl = uploadResult.secure_url; 
         // ------------------------------------------
 
@@ -371,8 +388,7 @@ app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto
             ubicacion: ubicaciongps,
             fotourl: fotourl, // ✅ URL PÚBLICA DE CLOUDINARY
             fecharegistro: new Date(),
-            estadovalidacion: 'Pendiente',
-            sensorId: null, // 🚨 NUEVO: Inicialmente sin sensor
+            estadovalidacion: 'Pendiente'
         };
 
         const docref = await db.collection('arboles').add(nuevoregistro);
@@ -390,21 +406,39 @@ app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto
 });
 
 /**
- * Endpoint para obtener puntos recomendados para plantar.
- * 💡 RUTA PÚBLICA (para el estado inicial del voluntario)
+ * Endpoint para simular la obtención de retos. (Ruta pública, no requiere token)
  */
-app.get('/api/arboles/recomendaciones', async (req, res) => {
-    // Datos simulados de puntos recomendados. 
-    // En producción, esto se leería de una colección de Firestore (e.g., 'puntosRecomendados').
-    const puntosRecomendados = [
-        { lat: 20.6738, lng: -103.3444, nombre: "Parque Metropolitano", razon: "Alta necesidad de reforestación" },
-        { lat: 20.7000, lng: -103.3500, nombre: "Bosque Colomos Este", razon: "Zona de amortiguamiento crítico" },
-        { lat: 20.6550, lng: -103.3950, nombre: "Cerca de Río Atemajac", razon: "Control de erosión" }
-    ];
-
-    res.status(200).json({ ok: true, puntos: puntosRecomendados });
+/**
+ * @deprecated - Use /api/campanas/activas instead
+ * Get active challenges for volunteers (legacy endpoint)
+ */
+app.get('/api/voluntario/retos', async (req, res) => {
+    try {
+        // Get active campaigns from database
+        const snapshot = await db.collection('campanas')
+            .where('activa', '==', true)
+            .limit(10)
+            .get();
+        
+        const retosactivos = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+        
+        // For now, return empty recognitions (can be extended with real data)
+        const reconocimientos = [];
+        
+        res.status(200).json({ retosactivos, reconocimientos });
+    } catch (error) {
+        console.error("Error al obtener retos:", error);
+        // Fallback to default data
+        const retosactivos = [
+            { id: 1, titulo: "Maratón de Riego", descripcion: "Riega 10 árboles en la Zona Norte.", completado: false },
+        ];
+        res.status(200).json({ retosactivos, reconocimientos: [] });
+    }
 });
-
+// servidor.js
 
 /**
  * Obtener árboles por ID de Voluntario
@@ -423,12 +457,12 @@ app.get('/api/arboles/voluntario/:voluntarioId', autenticarToken, async (req, re
     try {
         const arbolesRef = db.collection('arboles');
         
-        // Usar 'voluntarioid' (todo minúscula)
+        // 🚨 CORRECCIÓN: Usar 'voluntarioid' (todo minúscula) para que coincida con la clave usada en el registro.
         const snapshot = await arbolesRef.where('voluntarioid', '==', voluntarioId).get();
 
         const arboles = [];
         snapshot.forEach(doc => {
-            // Incluye el ID del documento y el sensorId
+            // Incluye el ID del documento
             arboles.push({ id: doc.id, ...doc.data() }); 
         });
 
@@ -445,6 +479,10 @@ app.get('/api/arboles/voluntario/:voluntarioId', autenticarToken, async (req, re
 // ===================================
 
 /**
+ * Endpoint para obtener todos los registros de árboles pendientes de validación.
+ * 💡 RUTA PROTEGIDA con autenticarToken y verificaradmin.
+ */
+/**
  * Endpoint para diagnosticar - obtener TODOS los registros sin filtrar
  */
 app.get('/api/admin/validacion/all', autenticarToken, verificaradmin, async (req, res) => {
@@ -456,6 +494,7 @@ app.get('/api/admin/validacion/all', autenticarToken, verificaradmin, async (req
         }));
         
         console.log(`Total records in database: ${registros.length}`);
+        console.log('Records:', registros);
         
         res.status(200).json({ ok: true, total: registros.length, registros });
     } catch (error) {
@@ -481,6 +520,27 @@ app.get('/api/admin/validacion/pendientes', autenticarToken, verificaradmin, asy
             id: doc.id,
             ...doc.data()
         }));
+
+        console.log(`Found ${registros.length} pending registrations`);
+        
+        // If no records found, get diagnostic info
+        if (registros.length === 0) {
+            console.warn("No records found with 'Pendiente' status");
+            
+            // Get all records for diagnostic
+            const allSnapshot = await db.collection('arboles').limit(100).get();
+            const allRecords = allSnapshot.docs.map(doc => doc.data());
+            
+            // Count status distribution
+            const statusCount = {};
+            allRecords.forEach(r => {
+                const status = (r.estadovalidacion || 'undefined').toLowerCase();
+                statusCount[status] = (statusCount[status] || 0) + 1;
+            });
+            
+            console.log('Total records in arboles collection:', allRecords.length);
+            console.log('Status distribution:', statusCount);
+        }
         
         res.status(200).json({ 
             ok: true, 
@@ -490,6 +550,9 @@ app.get('/api/admin/validacion/pendientes', autenticarToken, verificaradmin, asy
 
     } catch (error) {
         console.error("Error al obtener registros pendientes:", error);
+        console.error("Error details:", error.message, error.stack);
+        
+        // Try to provide helpful error message
         let errorMessage = "Error interno del servidor.";
         if (error.code) {
             errorMessage += ` Código: ${error.code}`;
@@ -503,13 +566,12 @@ app.get('/api/admin/validacion/pendientes', autenticarToken, verificaradmin, asy
 });
 
 /**
- * Endpoint para actualizar el estado de validación (Aprobar/Rechazar) y asignar sensorId.
+ * Endpoint para actualizar el estado de validación (Aprobar/Rechazar).
  * 💡 RUTA PROTEGIDA
  */
 app.patch('/api/admin/validacion/:id', autenticarToken, verificaradmin, async (req, res) => {
     const registroid = req.params.id;
-    // 🚨 MODIFICADO: Añadimos sensorId
-    const { nuevoestado, motivorechazo, sensorId } = req.body; 
+    const { nuevoestado, motivorechazo } = req.body; 
 
     if (nuevoestado !== 'Aprobado' && nuevoestado !== 'Rechazado') {
         return res.status(400).json({ mensaje: "Estado de validación inválido." });
@@ -523,30 +585,10 @@ app.patch('/api/admin/validacion/:id', autenticarToken, verificaradmin, async (r
     if (nuevoestado === 'Rechazado' && motivorechazo) {
         dataactualizar.motivorechazo = motivorechazo; // minúsculas
     }
-    
-    // 🚨 NUEVA LÓGICA: Asignación de Sensor (solo si se aprueba)
-    if (nuevoestado === 'Aprobado') {
-        if (sensorId) {
-            dataactualizar.sensorId = sensorId; 
-        } else {
-             // Si aprueba, pero no manda sensorId, lo deja en null o lo borra
-             // Dejaremos que el front de Admin decida si lo manda o no. Si no lo manda, no se actualiza (o se mantiene null).
-             // Para forzar la lógica, podríamos requerir sensorId si es 'Aprobado', pero por flexibilidad, lo dejaremos opcional.
-             // Solo se asigna si se manda en el body. Si se aprueba, pero no se manda sensorId, el estado del voluntario no cambia a "completo".
-        }
-    }
-
 
     try {
         await db.collection('arboles').doc(registroid).update(dataactualizar);
         
-        // Si se aprueba y se asigna sensor, podrías querer hacer algo más, como actualizar el RTDB
-        if (nuevoestado === 'Aprobado' && sensorId) {
-             // Por ejemplo, registrar el sensor en Realtime Database (RTDB) si es necesario.
-             // await realtimeDb.ref(`sensores/${sensorId}`).set({ arbolId: registroid, status: 'Active' });
-        }
-
-
         res.status(200).json({ 
             ok: true,
             mensaje: `Registro ${registroid} actualizado a ${nuevoestado}.` 
@@ -559,7 +601,7 @@ app.patch('/api/admin/validacion/:id', autenticarToken, verificaradmin, async (r
 });
 
 // ===================================
-// 👥 GESTIÓN DE USUARIOS Y ROLES (Sin cambios)
+// 👥 GESTIÓN DE USUARIOS Y ROLES
 // ===================================
 
 /**
@@ -661,7 +703,7 @@ app.delete('/api/admin/usuarios/:uid', autenticarToken, verificaradmin, async (r
 
 
 // ===================================
-// 🎯 GESTIÓN DE CAMPANAS Y RETOS (Sin cambios)
+// 🎯 GESTIÓN DE CAMPANAS Y RETOS
 // ===================================
 
 /**
@@ -896,7 +938,7 @@ app.get('/api/voluntario/mis-reto', autenticarToken, async (req, res) => {
 
 
 // ===================================
-// 📅 GESTIÓN DE EVENTOS (Sin cambios)
+// 📅 GESTIÓN DE EVENTOS
 // ===================================
 
 /**
@@ -966,6 +1008,7 @@ app.get('/api/eventos/activos', async (req, res) => {
     try {
         console.log('Fetching active events...');
         
+        // Try with orderBy first, but handle missing index
         let snapshot;
         try {
             snapshot = await db.collection('eventos')
@@ -973,6 +1016,7 @@ app.get('/api/eventos/activos', async (req, res) => {
                 .orderBy('fecha', 'asc')
                 .get();
         } catch (orderError) {
+            // If orderBy fails due to missing index, query without ordering
             console.warn("Index missing for fecha, querying without order:", orderError.message);
             snapshot = await db.collection('eventos')
                 .where('activo', '==', true)
@@ -993,10 +1037,13 @@ app.get('/api/eventos/activos', async (req, res) => {
             });
         }
         
+        console.log(`Found ${eventos.length} active events`);
         res.status(200).json({ ok: true, eventos });
         
     } catch (error) {
         console.error("Error al obtener eventos activos:", error);
+        console.error("Error details:", error.message, error.stack);
+        
         let errorMessage = "Error al obtener eventos.";
         if (error.message) {
             errorMessage += ` ${error.message}`;
