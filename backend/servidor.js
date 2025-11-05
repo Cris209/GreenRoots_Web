@@ -474,6 +474,34 @@ app.get('/api/arboles/voluntario/:voluntarioId', autenticarToken, async (req, re
     }
 });
 
+//endpoint para contar los arboles registrados
+app.get('/api/voluntario/arboles/count', autenticarToken, async (req, res) => {
+    const voluntarioId = req.uid; // Obtenido del token autenticado por el middleware
+
+    try {
+        if (!voluntarioId) {
+            return res.status(400).json({ ok: false, mensaje: "ID de voluntario no encontrado en el token." });
+        }
+        
+        // Consulta a Firestore para obtener el número de documentos
+        const snapshot = await db.collection('arboles')
+                                 .where('voluntarioid', '==', voluntarioId)
+                                 .get();
+
+        const totalArboles = snapshot.size;
+
+        res.status(200).json({ 
+            ok: true, 
+            totalArboles: totalArboles, // El conteo que el frontend necesita
+            mensaje: `Total de árboles registrados: ${totalArboles}`
+        });
+        
+    } catch (error) {
+        console.error("Error al obtener el conteo de árboles del voluntario:", error);
+        res.status(500).json({ ok: false, mensaje: "Error interno del servidor al obtener el conteo." });
+    }
+});
+
 // ===================================
 // ⚙️ RUTAS DEL ADMINISTRADOR
 // ===================================
