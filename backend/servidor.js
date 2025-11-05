@@ -4,6 +4,7 @@ const admin = require("firebase-admin");
 const axios = require("axios");
 const validator = require('validator');
 const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
 
 // ===================================
 // CONFIGURACIÓN INICIAL DE EXPRESS Y FIREBASE
@@ -35,7 +36,15 @@ const FIREBASE_DATABASE_URL = process.env.FIREBASE_DATABASE_URL; // 💡 ASUME E
 const FIREBASE_STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET; // 💡 ASUME ESTA VARIABLE
 const FIREBASE_SENDER_ID = process.env.FIREBASE_SENDER_ID; // 💡 ASUME ESTA VARIABLE
 const FIREBASE_APP_ID = process.env.FIREBASE_APP_ID; // 💡 ASUME ESTA VARIABLE
+const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME; // 🚨 NUEVA
+const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;       // 🚨 NUEVA
+const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
 
+cloudinary.config({
+    cloud_name: CLOUDINARY_CLOUD_NAME,
+    api_key: CLOUDINARY_API_KEY,
+    api_secret: CLOUDINARY_API_SECRET
+});
 
 if (!FIREBASE_WEB_API_KEY) {
     throw new Error("❌ La variable de entorno FIREBASE_WEB_API_KEY no está configurada");
@@ -339,6 +348,9 @@ app.post("/api/login", async (req, res) => {
  * Endpoint para registrar un árbol plantado, guardando la foto en Base64 en Firestore.
  * 💡 RUTA PROTEGIDA (NO USA FIREBASE STORAGE)
  */
+/**
+ * Endpoint para registrar un árbol plantado usando Cloudinary.
+ */
 app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto'), async (req, res) => {
     
     const { tipoarbol, ubicaciongps } = req.body; 
@@ -350,26 +362,31 @@ app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto
     }
 
     try {
-        // --- 🚨 Lógica de Conversión a Base64 (Data URI) ---
-        // 1. Convertir el buffer de la imagen a Base64
-        const b64 = fotofile.buffer.toString("base64");
+        // --- 🚨 Lógica de Subida a Cloudinary ---
         
-        // 2. Crear el Data URI completo (ej: data:image/jpeg;base64,...)
-        // Esta cadena se guarda en el campo 'fotourl' y es la que el frontend usará para mostrar la imagen.
-        const dataURI = `data:${fotofile.mimetype};base64,${b64}`;
+        // 1. Convertir el buffer de la imagen a un Data URI (formato que Cloudinary acepta)
+        const b64 = Buffer.from(fotofile.buffer).toString("base64");
+        let dataURI = "data:" + fotofile.mimetype + ";base64," + b64;
         
-        // Opcional: ADVERTENCIA si la imagen es demasiado grande (cercana al límite de 1MB de Firestore)
-        if (dataURI.length > 900000) { 
-             console.warn(`ADVERTENCIA: Imagen grande (${dataURI.length} chars). Podría exceder el límite de 1MB de Firestore.`);
-        }
+        // 2. Definir una ID única para la imagen
+        const publicId = `greenroots/arboles/${voluntarioid}_${Date.now()}`;
+
+        // 3. Subir el Data URI a Cloudinary
+        const uploadResult = await cloudinary.uploader.upload(dataURI, {
+            public_id: publicId,
+            folder: "greenroots_arboles" // Opcional: Organiza las fotos en una carpeta
+        });
+        
+        // La URL de acceso público que necesitamos para guardar en Firestore
+        const fotourl = uploadResult.secure_url; 
         // ------------------------------------------
 
-        // 3. Guardar en Firestore el Base64 (Data URI)
+        // 4. Guardar en Firestore con la URL REAL de Cloudinary
         const nuevoregistro = {
             voluntarioid: voluntarioid,
             tipodearbol: tipoarbol,
             ubicacion: ubicaciongps,
-            fotourl: dataURI, // ✅ Data URI Base64 guardada en el documento
+            fotourl: fotourl, // ✅ URL PÚBLICA DE CLOUDINARY
             fecharegistro: new Date(),
             estadovalidacion: 'Pendiente'
         };
@@ -378,12 +395,12 @@ app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto
         
         res.status(201).json({ 
             ok: true,
-            mensaje: "Árbol registrado exitosamente. La foto ha sido guardada en la base de datos.", 
+            mensaje: "Árbol registrado y foto subida exitosamente. Pendiente de validación.", 
             id: docref.id 
         });
 
     } catch (error) {
-        console.error("Error general en el registro del árbol:", error);
+        console.error("Error general en el registro del árbol (Cloudinary):", error);
         res.status(500).json({ ok: false, mensaje: error.message || "Error interno del servidor al registrar árbol." });
     }
 });
