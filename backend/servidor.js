@@ -339,16 +339,6 @@ app.post("/api/login", async (req, res) => {
 // ===================================
 
 /**
- * Endpoint para registrar un árbol plantado.
- * 💡 RUTA PROTEGIDA
- */
-// servidor.js
-
-/**
- * Endpoint para registrar un árbol plantado, guardando la foto en Base64 en Firestore.
- * 💡 RUTA PROTEGIDA (NO USA FIREBASE STORAGE)
- */
-/**
  * Endpoint para registrar un árbol plantado usando Cloudinary.
  */
 app.post('/api/arboles/registrar', autenticarToken, upload.single('evidenciaFoto'), async (req, res) => {
@@ -478,10 +468,6 @@ app.get('/api/arboles/voluntario/:voluntarioId', autenticarToken, async (req, re
 // ⚙️ RUTAS DEL ADMINISTRADOR
 // ===================================
 
-/**
- * Endpoint para obtener todos los registros de árboles pendientes de validación.
- * 💡 RUTA PROTEGIDA con autenticarToken y verificaradmin.
- */
 /**
  * Endpoint para diagnosticar - obtener TODOS los registros sin filtrar
  */
@@ -1102,3 +1088,4 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`🚀 Servidor Express corriendo en puerto ${PORT}`);
 });
+```eof
