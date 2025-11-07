@@ -39,6 +39,7 @@ const FIREBASE_APP_ID = process.env.FIREBASE_APP_ID; // 💡 ASUME ESTA VARIABLE
 const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME; // 🚨 NUEVA
 const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;       // 🚨 NUEVA
 const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
+const ISRIC_SOILGRIDS_URL = process.env.ISRIC_SOILGRIDS_URL || "https://rest.isric.org/soilgrids/v2.0/properties/query";
 
 cloudinary.config({
     cloud_name: CLOUDINARY_CLOUD_NAME,
@@ -259,6 +260,7 @@ app.post("/api/registro", async (req, res) => {
         res.status(500).json({ ok: false, mensaje: mensajeError });
     }
 });
+
 
 
 // 📌 Ruta: LOGIN
@@ -499,6 +501,72 @@ app.get('/api/voluntario/arboles/count', autenticarToken, async (req, res) => {
     } catch (error) {
         console.error("Error al obtener el conteo de árboles del voluntario:", error);
         res.status(500).json({ ok: false, mensaje: "Error interno del servidor al obtener el conteo." });
+    }
+});
+
+// ===================================
+// RUTA DE DATOS DEL SUELO
+// ===================================
+
+/**
+ * Obtener la calidad del suelo (Carbono Orgánico) por coordenadas.
+ * 💡 RUTA PROTEGIDA (Asumiendo que se requiere autenticación)
+ */
+app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
+    const { lat, lon } = req.params;
+
+    // Validación de coordenadas básicas
+    if (!validator.isLat(lat.toString()) || !validator.isLon(lon.toString())) {
+        return res.status(400).json({ ok: false, mensaje: "Coordenadas no válidas." });
+    }
+
+    // Usaremos Contenido de Carbono Orgánico (ocd) a 0-5 cm de profundidad
+    const property = 'ocd';
+    const depth = '0-5cm'; 
+
+    try {
+        // Construcción de la URL de ISRIC SoilGrids
+        const url = `${ISRIC_SOILGRIDS_URL}?lon=${lon}&lat=${lat}&property=${property}&depth=${depth}&value=mean&format=json`;
+        
+        const response = await axios.get(url, {
+            timeout: 8000 // Aumentamos el timeout a 8 segundos
+        });
+
+        const data = response.data;
+        const ocdLayer = data.properties.layers.find(layer => layer.name === property);
+        
+        if (!ocdLayer || !ocdLayer.depths[0].values.mean) {
+            return res.status(404).json({ ok: false, mensaje: "No se encontraron datos de Carbono Orgánico (OCD) para esta zona." });
+        }
+
+        // El valor está en centigramos por kilogramo (cg/kg). Convertimos a g/kg.
+        const ocdValue_cg_kg = ocdLayer.depths[0].values.mean;
+        const ocdValue_g_kg = ocdValue_cg_kg / 100; 
+
+        let calidadTexto = "Media";
+        
+        // Clasificación simple basada en la cantidad de Carbono Orgánico (g/kg) en 0-5cm
+        if (ocdValue_g_kg < 10) { 
+            calidadTexto = "Baja";
+        } else if (ocdValue_g_kg >= 30) {
+            calidadTexto = "Alta";
+        } 
+
+        const resultado = {
+            ok: true,
+            calidad: calidadTexto,
+            valorOCD_g_kg: ocdValue_g_kg.toFixed(2),
+            unidad: "g/kg OCD",
+            profundidad: "0-5 cm",
+            mensaje: `Calidad del suelo: ${calidadTexto}`
+        };
+
+        res.status(200).json(resultado);
+
+    } catch (error) {
+        console.error("Error al obtener datos de calidad del suelo:", error.message);
+        const mensajeError = error.response ? "Error en la respuesta de la API externa." : "Error de red/servidor.";
+        res.status(500).json({ ok: false, mensaje: mensajeError });
     }
 });
 
