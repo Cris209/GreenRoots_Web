@@ -538,11 +538,12 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
     // NOTA: Asegúrate de que ISRIC_SOILGRIDS_URL esté definido en tu archivo servidor.js
 
     try {
-        // Construcción de la URL de ISRIC SoilGrids
         const url = `${ISRIC_SOILGRIDS_URL}?lon=${lon}&lat=${lat}&property=${property}&depth=${depth}&value=mean&format=json`;
         
+        console.log(`[Soil API] Solicitando a URL: ${url}`); // 💡 Log de depuración 1: La URL enviada
+        
         const response = await axios.get(url, {
-            timeout: 8000 // Aumentamos el timeout a 8 segundos
+            timeout: 8000
         });
 
         const data = response.data;
@@ -577,8 +578,21 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
         res.status(200).json(resultado);
 
     } catch (error) {
-        console.error("Error al obtener datos de calidad del suelo:", error.message);
-        const mensajeError = error.response ? "Error en la respuesta de la API externa." : "Error de red/servidor.";
+        // 🚨 CLAVE: Registro detallado del error
+        console.error("❌ ERROR DETALLADO al obtener calidad del suelo:", error.message);
+        
+        // Si el error tiene una respuesta (ej. de Axios por error 4xx/5xx de ISRIC)
+        if (error.response) {
+            console.error("  Respuesta de ISRIC:", error.response.data);
+            console.error("  Estatus HTTP de ISRIC:", error.response.status);
+            
+            // Si ISRIC devuelve 404, devolver 404
+            if (error.response.status === 404) {
+                 return res.status(404).json({ ok: false, mensaje: "Coordenadas fuera del área de cobertura de ISRIC." });
+            }
+        }
+        
+        const mensajeError = error.response ? "Error en la respuesta de la API externa (ISRIC)." : "Error de red/servidor interno.";
         res.status(500).json({ ok: false, mensaje: mensajeError });
     }
 });
