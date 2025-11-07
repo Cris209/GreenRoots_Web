@@ -543,7 +543,7 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
         console.log(`[Soil API] Solicitando a URL: ${url}`); // 💡 Log de depuración 1: La URL enviada
         
         const response = await axios.get(url, {
-            timeout: 8000
+            timeout: 15000
         });
 
         const data = response.data;
