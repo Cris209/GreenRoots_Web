@@ -28,6 +28,15 @@ const upload = multer({
     limits: { fileSize: 5 * 1024 * 1024 } // Límite de 5MB
 });
 
+const isValidCoordinate = (coord, isLat) => {
+    const min = isLat ? -90 : -180;
+    const max = isLat ? 90 : 180;
+    const num = parseFloat(coord);
+    
+    // Debe ser un número, no NaN, y estar dentro del rango
+    return !isNaN(num) && num >= min && num <= max;
+};
+
 // Variables de entorno
 const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY;
 const FIREBASE_KEY = process.env.FIREBASE_KEY;
@@ -515,14 +524,18 @@ app.get('/api/voluntario/arboles/count', autenticarToken, async (req, res) => {
 app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
     const { lat, lon } = req.params;
 
-    // Validación de coordenadas básicas
-    if (!validator.isLat(lat.toString()) || !validator.isLon(lon.toString())) {
+    // 🚨 CORRECCIÓN CLAVE: Usamos la función auxiliar 'isValidCoordinate'
+    if (!isValidCoordinate(lat, true) || !isValidCoordinate(lon, false)) {
+        // Log para depuración, si se recibe algo inesperado
+        console.warn(`Intento de solicitud con coordenadas inválidas: Lat=${lat}, Lon=${lon}`);
         return res.status(400).json({ ok: false, mensaje: "Coordenadas no válidas." });
     }
 
     // Usaremos Contenido de Carbono Orgánico (ocd) a 0-5 cm de profundidad
     const property = 'ocd';
-    const depth = '0-5cm'; 
+    const depth = '0-5cm'; 
+    
+    // NOTA: Asegúrate de que ISRIC_SOILGRIDS_URL esté definido en tu archivo servidor.js
 
     try {
         // Construcción de la URL de ISRIC SoilGrids
@@ -541,16 +554,16 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
 
         // El valor está en centigramos por kilogramo (cg/kg). Convertimos a g/kg.
         const ocdValue_cg_kg = ocdLayer.depths[0].values.mean;
-        const ocdValue_g_kg = ocdValue_cg_kg / 100; 
+        const ocdValue_g_kg = ocdValue_cg_kg / 100; 
 
         let calidadTexto = "Media";
         
         // Clasificación simple basada en la cantidad de Carbono Orgánico (g/kg) en 0-5cm
-        if (ocdValue_g_kg < 10) { 
+        if (ocdValue_g_kg < 10) { 
             calidadTexto = "Baja";
         } else if (ocdValue_g_kg >= 30) {
             calidadTexto = "Alta";
-        } 
+        } 
 
         const resultado = {
             ok: true,
