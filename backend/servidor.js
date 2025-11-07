@@ -513,6 +513,90 @@ app.get('/api/voluntario/arboles/count', autenticarToken, async (req, res) => {
     }
 });
 
+app.get('/api/arboles/mi-impacto', autenticarToken, async (req, res) => {
+    const voluntarioId = req.uid; // Obtenemos el ID del token verificado
+    const today = new Date();
+    const sixMonthsAgo = new Date();
+    // Establecer la fecha hace 5 meses para incluir 6 meses en total (el actual y los 5 anteriores)
+    sixMonthsAgo.setMonth(today.getMonth() - 5); 
+    sixMonthsAgo.setDate(1); // Empezar desde el primer día del mes
+
+    try {
+        const arbolesRef = db.collection('arboles');
+        
+        // 1. Filtrar por ID del voluntario y solo aquellos con validación 'Aprobado'
+        const snapshot = await arbolesRef
+            .where('voluntarioid', '==', voluntarioId)
+            .where('estadovalidacion', '==', 'Aprobado') // Solo los validados como impacto
+            .get();
+
+        const arboles = snapshot.docs.map(doc => doc.data());
+
+        // Configuración para la agregación de los últimos 6 meses
+        const monthlyData = {};
+        const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+        // Inicializar los contadores para los últimos 6 meses (incluyendo el actual)
+        for (let i = 0; i < 6; i++) {
+            const date = new Date();
+            date.setMonth(today.getMonth() - i);
+            // Formato de etiqueta: Mes/Año (Ej: Oct/25)
+            const monthKey = `${monthNames[date.getMonth()]}/${date.getFullYear() % 100}`;
+            monthlyData[monthKey] = 0;
+        }
+
+        arboles.forEach(arbol => {
+            // Asumimos 'fecharegistro' es un Firestore Timestamp con el Admin SDK
+            let date;
+            if (arbol.fecharegistro && typeof arbol.fecharegistro.toDate === 'function') {
+                date = arbol.fecharegistro.toDate();
+            } else if (arbol.fecharegistro instanceof Date) {
+                date = arbol.fecharegistro;
+            } else {
+                return; 
+            }
+
+            // Solo contamos los que caen dentro de los últimos 6 meses
+            if (date >= sixMonthsAgo) {
+                const monthKey = `${monthNames[date.getMonth()]}/${date.getFullYear() % 100}`;
+                if (monthlyData.hasOwnProperty(monthKey)) {
+                     monthlyData[monthKey]++;
+                }
+            }
+        });
+        
+        // Ordenar las claves (meses) cronológicamente
+        const sortedKeys = Object.keys(monthlyData).sort((a, b) => {
+            const getMonthIndex = (key) => {
+                const [monthStr, yearStr] = key.split('/');
+                const monthIndex = monthNames.indexOf(monthStr);
+                const year = parseInt(yearStr, 10) + 2000;
+                return year * 100 + monthIndex;
+            };
+            return getMonthIndex(a) - getMonthIndex(b);
+        });
+
+        // Preparar la respuesta JSON
+        const labels = sortedKeys;
+        const dataPoints = sortedKeys.map(key => monthlyData[key]);
+        
+        res.status(200).json({ 
+            ok: true, 
+            labels: labels, 
+            data: dataPoints,
+            totalArboles: arboles.length // Devolvemos el total para la tarjeta
+        });
+        
+    } catch (error) {
+        console.error("Error al obtener impacto ambiental:", error);
+        res.status(500).json({ 
+            ok: false, 
+            mensaje: "Error interno al calcular el impacto." 
+        });
+    }
+});
+
+
 // ===================================
 // RUTA DE DATOS DEL SUELO
 // ===================================
