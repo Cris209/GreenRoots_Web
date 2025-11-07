@@ -578,24 +578,30 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
         res.status(200).json(resultado);
 
     } catch (error) {
-        // 🚨 CLAVE: Registro detallado del error
-        console.error("❌ ERROR DETALLADO al obtener calidad del suelo:", error.message);
+    console.error("❌ ERROR DETALLADO al obtener calidad del suelo:", error.message);
+
+    // 🚨 NUEVA LÓGICA: Comprobación de TIMEOUT
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+        console.warn("❗ Timeout detectado. Devolviendo datos simulados para continuar.");
         
-        // Si el error tiene una respuesta (ej. de Axios por error 4xx/5xx de ISRIC)
-        if (error.response) {
-            console.error("  Respuesta de ISRIC:", error.response.data);
-            console.error("  Estatus HTTP de ISRIC:", error.response.status);
-            
-            // Si ISRIC devuelve 404, devolver 404
-            if (error.response.status === 404) {
-                 return res.status(404).json({ ok: false, mensaje: "Coordenadas fuera del área de cobertura de ISRIC." });
-            }
-        }
-        
-        const mensajeError = error.response ? "Error en la respuesta de la API externa (ISRIC)." : "Error de red/servidor interno.";
-        res.status(500).json({ ok: false, mensaje: mensajeError });
+        // --- DATOS SIMULADOS ---
+        const simulado = {
+            ok: true,
+            calidad: "Media (Simulada)", // Indica que el dato no es real
+            valorOCD_g_kg: "20.50",
+            unidad: "g/kg OCD",
+            profundidad: "0-5 cm",
+            mensaje: "API externa de ISRIC no respondió a tiempo. Dato simulado."
+        };
+        // Devolver respuesta OK (200) con datos simulados
+        return res.status(200).json(simulado);
     }
-});
+    // -------------------------
+
+    // Si no fue un timeout, devolver el error 500 normal
+    const mensajeError = error.response ? "Error en la respuesta de la API externa (ISRIC)." : "Error de red/servidor interno.";
+    res.status(500).json({ ok: false, mensaje: mensajeError });
+}
 
 // ===================================
 // ⚙️ RUTAS DEL ADMINISTRADOR
