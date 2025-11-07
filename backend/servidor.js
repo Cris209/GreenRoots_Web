@@ -48,7 +48,7 @@ const FIREBASE_APP_ID = process.env.FIREBASE_APP_ID; // 💡 ASUME ESTA VARIABLE
 const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME; // 🚨 NUEVA
 const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;       // 🚨 NUEVA
 const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
-const ISRIC_SOILGRIDS_URL = process.env.ISRIC_SOILGRIDS_URL || "https://rest.isric.org/soilgrids/v2.0/properties/query";
+const OPENMETEO_SOIL_API = "https://api.open-meteo.com/v1/forecast";
 
 cloudinary.config({
     cloud_name: CLOUDINARY_CLOUD_NAME,
@@ -521,87 +521,47 @@ app.get('/api/voluntario/arboles/count', autenticarToken, async (req, res) => {
  * Obtener la calidad del suelo (Carbono Orgánico) por coordenadas.
  * 💡 RUTA PROTEGIDA (Asumiendo que se requiere autenticación)
  */
+// servidor.js - Nuevo Endpoint para Open-Meteo
 app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
     const { lat, lon } = req.params;
 
-    // 🚨 CORRECCIÓN CLAVE: Usamos la función auxiliar 'isValidCoordinate'
-    if (!isValidCoordinate(lat, true) || !isValidCoordinate(lon, false)) {
-        // Log para depuración, si se recibe algo inesperado
-        console.warn(`Intento de solicitud con coordenadas inválidas: Lat=${lat}, Lon=${lon}`);
-        return res.status(400).json({ ok: false, mensaje: "Coordenadas no válidas." });
-    }
-
-    // Usaremos Contenido de Carbono Orgánico (ocd) a 0-5 cm de profundidad
-    const property = 'ocd';
-    const depth = '0-5cm'; 
-    
-    // NOTA: Asegúrate de que ISRIC_SOILGRIDS_URL esté definido en tu archivo servidor.js
+    // ... (Tu lógica de validación de coordenadas) ...
 
     try {
-        const url = `${ISRIC_SOILGRIDS_URL}?lon=${lon}&lat=${lat}&property=${property}&depth=${depth}&value=mean&format=json`;
-        
-        console.log(`[Soil API] Solicitando a URL: ${url}`); // 💡 Log de depuración 1: La URL enviada
+        const url = `${OPENMETEO_SOIL_API}?latitude=${lat}&longitude=${lon}&hourly=soil_temperature_0cm,soil_moisture_0_to_1cm`;
         
         const response = await axios.get(url, {
-            timeout: 15000
+            timeout: 8000 // Esta API es muy rápida, 8s es suficiente
         });
 
         const data = response.data;
-        const ocdLayer = data.properties.layers.find(layer => layer.name === property);
+        // Tomamos el último valor de humedad (indicador de la calidad)
+        const moisture = data.hourly.soil_moisture_0_to_1cm.slice(-1)[0];
+        const temp = data.hourly.soil_temperature_0cm.slice(-1)[0];
         
-        if (!ocdLayer || !ocdLayer.depths[0].values.mean) {
-            return res.status(404).json({ ok: false, mensaje: "No se encontraron datos de Carbono Orgánico (OCD) para esta zona." });
+        let calidadTexto = "Buena";
+        if (moisture < 0.10) { // Umbral bajo
+            calidadTexto = "Seco/Bajo";
+        } else if (moisture > 0.40) { // Umbral alto
+            calidadTexto = "Saturado/Riesgo";
         }
-
-        // El valor está en centigramos por kilogramo (cg/kg). Convertimos a g/kg.
-        const ocdValue_cg_kg = ocdLayer.depths[0].values.mean;
-        const ocdValue_g_kg = ocdValue_cg_kg / 100; 
-
-        let calidadTexto = "Media";
-        
-        // Clasificación simple basada en la cantidad de Carbono Orgánico (g/kg) en 0-5cm
-        if (ocdValue_g_kg < 10) { 
-            calidadTexto = "Baja";
-        } else if (ocdValue_g_kg >= 30) {
-            calidadTexto = "Alta";
-        } 
 
         const resultado = {
             ok: true,
             calidad: calidadTexto,
-            valorOCD_g_kg: ocdValue_g_kg.toFixed(2),
-            unidad: "g/kg OCD",
-            profundidad: "0-5 cm",
-            mensaje: `Calidad del suelo: ${calidadTexto}`
+            valorOCD_g_kg: moisture ? moisture.toFixed(3) : 'N/A', // Usamos humedad como valor
+            unidad: "m³/m³ Humedad",
+            profundidad: "0-1 cm",
+            mensaje: `Humedad: ${moisture ? moisture.toFixed(2) : 'N/A'} (Temp: ${temp}°C)`
         };
 
         res.status(200).json(resultado);
 
     } catch (error) {
-    console.error("❌ ERROR DETALLADO al obtener calidad del suelo:", error.message);
-
-    // 🚨 NUEVA LÓGICA: Comprobación de TIMEOUT
-    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-        console.warn("❗ Timeout detectado. Devolviendo datos simulados para continuar.");
-        
-        // --- DATOS SIMULADOS ---
-        const simulado = {
-            ok: true,
-            calidad: "Media (Simulada)", // Indica que el dato no es real
-            valorOCD_g_kg: "20.50",
-            unidad: "g/kg OCD",
-            profundidad: "0-5 cm",
-            mensaje: "API externa de ISRIC no respondió a tiempo. Dato simulado."
-        };
-        // Devolver respuesta OK (200) con datos simulados
-        return res.status(200).json(simulado);
+        console.error("❌ Fallo con Open-Meteo:", error.message);
+        res.status(500).json({ ok: false, mensaje: "Error de conexión con API de clima." });
     }
-    // -------------------------
-
-    // Si no fue un timeout, devolver el error 500 normal
-    const mensajeError = error.response ? "Error en la respuesta de la API externa (ISRIC)." : "Error de red/servidor interno.";
-    res.status(500).json({ ok: false, mensaje: mensajeError });
-}
+});
 
 // ===================================
 // ⚙️ RUTAS DEL ADMINISTRADOR
