@@ -1217,29 +1217,66 @@ app.get('/api/admin/eventos', autenticarToken, verificaradmin, async (req, res) 
 /**
  * Obtener eventos activos para voluntarios (Ruta pública, no requiere token)
  */
-app.get('/api/eventos/activos', async (req, res) => {
+// ===================================
+// 🗓️ RUTA: OBTENER TODOS LOS EVENTOS ACTIVOS
+// ===================================
+
+/**
+ * Endpoint para obtener TODOS los eventos cuya fecha no ha pasado,
+ * estandarizando la estructura de datos para el frontend.
+ */
+app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
     try {
-        console.log('Fetching active events...');
+        const eventosRef = db.collection('eventos');
+        const today = new Date();
+        // Establecer la hora a la medianoche para comparar solo la fecha
+        today.setHours(0, 0, 0, 0); 
         
-        // Try with orderBy first, but handle missing index
-        let snapshot;
-        try {
-            snapshot = await db.collection('eventos')
-                .where('activo', '==', true)
-                .orderBy('fecha', 'asc')
-                .get();
-        } catch (orderError) {
-            // If orderBy fails due to missing index, query without ordering
-            console.warn("Index missing for fecha, querying without order:", orderError.message);
-            snapshot = await db.collection('eventos')
-                .where('activo', '==', true)
-                .get();
-        }
-        
-        const eventos = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
+        // 🚨 CAMBIO CLAVE: Quitamos el filtro por 'activo'. Solo filtramos por fecha futura.
+        const snapshot = await eventosRef
+            .where('fecha', '>=', today) // Mantiene el filtro para obtener solo eventos futuros
+            .orderBy('fecha', 'asc') 
+            .get();
+
+        const eventos = snapshot.docs.map(doc => {
+            const data = doc.data();
+            
+            // 🚀 ESTANDARIZACIÓN DE LOS DATOS PARA EL FRONTEND
+            // Garantizamos que existan los campos requeridos por el dashboard.html
+            const standardizedEvent = {
+                id: doc.id, // ID del documento de Firestore
+                
+                // Mapeo de campos requeridos por el frontend (con fallbacks)
+                titulo: data.titulo || data.autor || 'Evento sin título', // Usa 'autor' como fallback si 'titulo' falta
+                fecha: data.fecha, 
+                descripcion: data.descripcion || '',
+                
+                // Campos que podrían faltar en la estructura de la versión móvil/antigua
+                ubicacion: data.ubicacion || 'Ubicación pendiente',
+                hora: data.hora || 'Hora pendiente',
+                // Aseguramos que 'participantes' siempre sea un array para que el frontend no falle
+                participantes: data.participantes || [], 
+                
+                // Incluimos todos los demás datos por si acaso
+                ...data 
+            };
+            
+            return standardizedEvent;
+        });
+
+        res.status(200).json({ 
+            ok: true, 
+            eventos: eventos 
+        });
+
+    } catch (error) {
+        console.error("Error al obtener todos los eventos activos:", error);
+        res.status(500).json({ 
+            ok: false, 
+            mensaje: "Error interno al obtener eventos." 
+        });
+    }
+});
         
         // Sort manually if no orderBy was used
         if (snapshot.docs.length > 0 && !snapshot.docs[0].data().fecha?.seconds) {
