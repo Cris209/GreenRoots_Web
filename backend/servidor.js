@@ -1290,14 +1290,13 @@ app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
         console.log(`Found ${eventos.length} active events`);
         res.status(200).json({ ok: true, eventos });
         
-    } catch (error) {
-        console.error("Error al obtener eventos activos:", error);
-        console.error("Error details:", error.message, error.stack);
-        
-        let errorMessage = "Error al obtener eventos.";
-        if (error.message) {
-            errorMessage += ` ${error.message}`;
-        }
+    } catch (error) { 
+        console.error("Error al obtener todos los eventos activos:", error);
+        res.status(500).json({ 
+            ok: false, 
+            mensaje: "Error interno al obtener eventos." 
+        });
+    
         
         res.status(500).json({ ok: false, mensaje: errorMessage });
     }
