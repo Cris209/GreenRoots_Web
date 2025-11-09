@@ -1228,47 +1228,55 @@ app.get('/api/admin/eventos', autenticarToken, verificaradmin, async (req, res) 
 app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
     try {
         const eventosRef = db.collection('eventos');
-        const today = new Date();
-        // Establecer la hora a la medianoche para comparar solo la fecha
-        today.setHours(0, 0, 0, 0); 
         
-        // Obtenemos los eventos futuros.
-        // Nota: Firestore 'where' y 'orderBy' deben usar el mismo campo.
-        // Si 'fecha' es un Timestamp, funciona bien. Si es un String, se ordenará alfabéticamente.
+        // 🚨 CAMBIO CLAVE: Obtener TODOS los documentos SIN FILTRO de fecha en Firestore
+        // Esto evita errores de comparación de tipos de datos (String vs. Timestamp)
         const snapshot = await eventosRef
-            .where('fecha', '>=', today) // Mantiene el filtro para obtener solo eventos futuros
-            .orderBy('fecha', 'asc') // Ordena por fecha
-            .get();
+            .get(); // Ya no hay .where() ni .orderBy() en Firestore
 
-        const eventos = snapshot.docs.map(doc => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // La fecha de hoy a medianoche
+
+        // 1. Mapeo y Estandarización de datos
+        let eventos = snapshot.docs.map(doc => {
             const data = doc.data();
             
+            // Intenta convertir la fecha a un objeto Date (maneja Timestamps y Strings)
+            let eventDate;
+            if (data.fecha && typeof data.fecha.toDate === 'function') {
+                // Es un Timestamp de Firestore
+                eventDate = data.fecha.toDate();
+            } else if (data.fecha) {
+                // Es una cadena de texto (String)
+                eventDate = new Date(data.fecha);
+            } else {
+                // No hay campo de fecha. Lo ignoraremos.
+                return null;
+            }
+            
             // 🚀 ESTANDARIZACIÓN DE LOS DATOS PARA EL FRONTEND
-            // Garantizamos que existan los campos requeridos por el dashboard.html
             const standardizedEvent = {
-                id: doc.id, // ID del documento de Firestore
-                
-                // Mapeo de campos requeridos por el frontend (con fallbacks)
-                titulo: data.titulo || data.autor || 'Evento sin título', // Usa 'autor' como fallback si 'titulo' falta
-                fecha: data.fecha, 
+                id: doc.id,
+                titulo: data.titulo || data.autor || 'Evento sin título',
+                fecha: eventDate, // Usamos el objeto Date convertido
                 descripcion: data.descripcion || '',
-                
-                // Campos que podrían faltar en la estructura de la versión móvil/antigua
                 ubicacion: data.ubicacion || 'Ubicación pendiente',
                 hora: data.hora || 'Hora pendiente',
-                // Aseguramos que 'participantes' siempre sea un array para que el frontend no falle
                 participantes: data.participantes || [], 
-                
-                // Incluimos todos los demás datos por si acaso
                 ...data 
             };
             
             return standardizedEvent;
+        }).filter(evento => evento !== null); // Eliminar eventos que no tienen fecha
+
+        // 2. Filtrado de Eventos Futuros (en JavaScript)
+        eventos = eventos.filter(evento => {
+            // Se asegura de que la fecha sea válida y que no haya pasado
+            return evento.fecha instanceof Date && !isNaN(evento.fecha) && evento.fecha >= today;
         });
-        
-        // 🚨 NO ES NECESARIO ORDENAR MANUALMENTE SI YA SE USÓ .orderBy() en la consulta.
-        // Si el .orderBy fallara por un índice faltante, entonces sí se requeriría,
-        // pero por ahora lo dejamos simple y dependemos del query de Firestore.
+
+        // 3. Ordenamiento (en JavaScript)
+        eventos.sort((a, b) => a.fecha.getTime() - b.fecha.getTime());
 
         console.log(`Found ${eventos.length} active events`);
         
@@ -1278,18 +1286,15 @@ app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
         });
 
     } catch (error) {
-        // El error es atrapado y gestionado aquí.
         console.error("Error al obtener todos los eventos activos:", error);
-        
-        // Mensaje de error centralizado
-        const errorMessage = "Error interno al obtener eventos.";
-        
         res.status(500).json({ 
             ok: false, 
-            mensaje: errorMessage 
+            mensaje: "Error interno al obtener eventos." 
         });
     }
 });
+
+
 /**
  * Eliminar evento
  * 💡 RUTA PROTEGIDA
