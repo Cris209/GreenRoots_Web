@@ -1229,28 +1229,34 @@ app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
     try {
         const eventosRef = db.collection('eventos');
         
-        // 🚨 CAMBIO CLAVE: Obtener TODOS los documentos SIN FILTRO de fecha en Firestore
-        // Esto evita errores de comparación de tipos de datos (String vs. Timestamp)
-        const snapshot = await eventosRef
-            .get(); // Ya no hay .where() ni .orderBy() en Firestore
+        // Obtener TODOS los documentos sin filtro en Firestore
+        const snapshot = await eventosRef.get();
 
         const today = new Date();
-        today.setHours(0, 0, 0, 0); // La fecha de hoy a medianoche
+        today.setHours(0, 0, 0, 0); // Hoy a medianoche
 
-        // 1. Mapeo y Estandarización de datos
+        // 1. Mapeo, Estandarización y Validación de fecha
         let eventos = snapshot.docs.map(doc => {
             const data = doc.data();
             
-            // Intenta convertir la fecha a un objeto Date (maneja Timestamps y Strings)
-            let eventDate;
-            if (data.fecha && typeof data.fecha.toDate === 'function') {
-                // Es un Timestamp de Firestore
-                eventDate = data.fecha.toDate();
-            } else if (data.fecha) {
-                // Es una cadena de texto (String)
-                eventDate = new Date(data.fecha);
+            let eventDate = null;
+
+            if (data.fecha) {
+                if (typeof data.fecha.toDate === 'function') {
+                    // 1a. Es un Timestamp de Firestore
+                    eventDate = data.fecha.toDate();
+                } else if (typeof data.fecha === 'string') {
+                    // 1b. Es una cadena de texto (String)
+                    eventDate = new Date(data.fecha);
+                    
+                    // 🚨 CRÍTICO: Si la conversión falló, eventDate es "Invalid Date".
+                    if (isNaN(eventDate.getTime())) {
+                        // Si falla, registramos un warning en el log y descartamos el evento.
+                        console.warn(`[EVENTO FALLIDO: ${doc.id}] Falló la conversión de fecha: "${data.fecha}".`);
+                        return null; 
+                    }
+                }
             } else {
-                // No hay campo de fecha. Lo ignoraremos.
                 return null;
             }
             
@@ -1258,7 +1264,7 @@ app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
             const standardizedEvent = {
                 id: doc.id,
                 titulo: data.titulo || data.autor || 'Evento sin título',
-                fecha: eventDate, // Usamos el objeto Date convertido
+                fecha: eventDate, // Objeto Date válido
                 descripcion: data.descripcion || '',
                 ubicacion: data.ubicacion || 'Ubicación pendiente',
                 hora: data.hora || 'Hora pendiente',
@@ -1267,12 +1273,12 @@ app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
             };
             
             return standardizedEvent;
-        }).filter(evento => evento !== null); // Eliminar eventos que no tienen fecha
+        }).filter(evento => evento !== null); // Elimina eventos sin fecha o con fecha inválida
 
         // 2. Filtrado de Eventos Futuros (en JavaScript)
         eventos = eventos.filter(evento => {
-            // Se asegura de que la fecha sea válida y que no haya pasado
-            return evento.fecha instanceof Date && !isNaN(evento.fecha) && evento.fecha >= today;
+            // Compara el objeto Date válido con today. El evento debe ser hoy o futuro.
+            return evento.fecha >= today;
         });
 
         // 3. Ordenamiento (en JavaScript)
