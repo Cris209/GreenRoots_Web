@@ -1232,10 +1232,12 @@ app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
         // Establecer la hora a la medianoche para comparar solo la fecha
         today.setHours(0, 0, 0, 0); 
         
-        // 🚨 CAMBIO CLAVE: Quitamos el filtro por 'activo'. Solo filtramos por fecha futura.
+        // Obtenemos los eventos futuros.
+        // Nota: Firestore 'where' y 'orderBy' deben usar el mismo campo.
+        // Si 'fecha' es un Timestamp, funciona bien. Si es un String, se ordenará alfabéticamente.
         const snapshot = await eventosRef
             .where('fecha', '>=', today) // Mantiene el filtro para obtener solo eventos futuros
-            .orderBy('fecha', 'asc') 
+            .orderBy('fecha', 'asc') // Ordena por fecha
             .get();
 
         const eventos = snapshot.docs.map(doc => {
@@ -1263,45 +1265,31 @@ app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
             
             return standardizedEvent;
         });
+        
+        // 🚨 NO ES NECESARIO ORDENAR MANUALMENTE SI YA SE USÓ .orderBy() en la consulta.
+        // Si el .orderBy fallara por un índice faltante, entonces sí se requeriría,
+        // pero por ahora lo dejamos simple y dependemos del query de Firestore.
 
+        console.log(`Found ${eventos.length} active events`);
+        
         res.status(200).json({ 
             ok: true, 
             eventos: eventos 
         });
 
     } catch (error) {
+        // El error es atrapado y gestionado aquí.
         console.error("Error al obtener todos los eventos activos:", error);
+        
+        // Mensaje de error centralizado
+        const errorMessage = "Error interno al obtener eventos.";
+        
         res.status(500).json({ 
             ok: false, 
-            mensaje: "Error interno al obtener eventos." 
+            mensaje: errorMessage 
         });
     }
 });
-        
-        // Sort manually if no orderBy was used
-        if (snapshot.docs.length > 0 && !snapshot.docs[0].data().fecha?.seconds) {
-            eventos.sort((a, b) => {
-                const fechaA = a.fecha || '';
-                const fechaB = b.fecha || '';
-                return fechaA.localeCompare(fechaB);
-            });
-        }
-        
-        console.log(`Found ${eventos.length} active events`);
-        res.status(200).json({ ok: true, eventos });
-        
-    } catch (error) { 
-        console.error("Error al obtener todos los eventos activos:", error);
-        res.status(500).json({ 
-            ok: false, 
-            mensaje: "Error interno al obtener eventos." 
-        });
-    
-        
-        res.status(500).json({ ok: false, mensaje: errorMessage });
-    }
-});
-
 /**
  * Eliminar evento
  * 💡 RUTA PROTEGIDA
