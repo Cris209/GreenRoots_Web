@@ -1229,38 +1229,51 @@ app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
     try {
         const eventosRef = db.collection('eventos');
         
-        // Obtener TODOS los documentos sin filtro en Firestore
+        // Obtenemos todos los documentos sin filtro
         const snapshot = await eventosRef.get();
 
         const today = new Date();
-        today.setHours(0, 0, 0, 0); // Hoy a medianoche
+        today.setHours(0, 0, 0, 0); 
 
-        // 1. Mapeo, Estandarización y Validación de fecha
-        let eventos = snapshot.docs.map(doc => {
+        // 1. Mapeo, Estandarización y Logging
+        let eventos = snapshot.docs.map((doc, index) => {
             const data = doc.data();
             
             let eventDate = null;
+            let dateLog = 'N/A';
+            let parseSuccess = false;
 
             if (data.fecha) {
+                dateLog = data.fecha; // Guardamos el valor crudo para el log
+                
                 if (typeof data.fecha.toDate === 'function') {
-                    // 1a. Es un Timestamp de Firestore
+                    // Es un Timestamp de Firestore
                     eventDate = data.fecha.toDate();
+                    parseSuccess = true;
                 } else if (typeof data.fecha === 'string') {
-                    // 1b. Es una cadena de texto (String)
+                    // Es una cadena de texto (String)
                     eventDate = new Date(data.fecha);
-                    
-                    // 🚨 CRÍTICO: Si la conversión falló, eventDate es "Invalid Date".
-                    if (isNaN(eventDate.getTime())) {
-                        // Si falla, registramos un warning en el log y descartamos el evento.
-                        console.warn(`[EVENTO FALLIDO: ${doc.id}] Falló la conversión de fecha: "${data.fecha}".`);
-                        return null; 
+                    if (!isNaN(eventDate.getTime())) {
+                        parseSuccess = true;
                     }
                 }
-            } else {
-                return null;
+            }
+
+            // 🚨 LOG DE DIAGNÓSTICO PARA LOS PRIMEROS 5 EVENTOS 🚨
+            if (index < 5) {
+                console.log(`[DIAGNOSTICO ${doc.id}]`);
+                console.log(`  > Fecha Cruda: ${dateLog}`);
+                console.log(`  > Tipo de Fecha: ${typeof data.fecha} ${typeof data.fecha === 'object' && data.fecha.toDate ? '(Timestamp)' : ''}`);
+                console.log(`  > Conversión OK: ${parseSuccess}`);
+                console.log(`  > Fecha Parseada: ${eventDate instanceof Date && parseSuccess ? eventDate.toISOString() : 'Inválida'}`);
+            }
+
+            // 🚨 TEMPORAL: Solo descarta si NO se pudo obtener un objeto Date válido
+            if (!parseSuccess) {
+                 return null;
             }
             
-            // 🚀 ESTANDARIZACIÓN DE LOS DATOS PARA EL FRONTEND
+            // 🚀 ESTANDARIZACIÓN DE LOS DATOS (Sin el filtro de fecha)
             const standardizedEvent = {
                 id: doc.id,
                 titulo: data.titulo || data.autor || 'Evento sin título',
@@ -1269,22 +1282,18 @@ app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
                 ubicacion: data.ubicacion || 'Ubicación pendiente',
                 hora: data.hora || 'Hora pendiente',
                 participantes: data.participantes || [], 
+                // Añadimos una bandera de diagnóstico
+                _isFuture: eventDate >= today,
                 ...data 
             };
             
             return standardizedEvent;
         }).filter(evento => evento !== null); // Elimina eventos sin fecha o con fecha inválida
 
-        // 2. Filtrado de Eventos Futuros (en JavaScript)
-        eventos = eventos.filter(evento => {
-            // Compara el objeto Date válido con today. El evento debe ser hoy o futuro.
-            return evento.fecha >= today;
-        });
+        // 🚨 TEMPORAL: NO FILTRAMOS NI ORDENAMOS (devolvemos todos los eventos válidos)
+        // Ya no se filtran por fecha futura.
 
-        // 3. Ordenamiento (en JavaScript)
-        eventos.sort((a, b) => a.fecha.getTime() - b.fecha.getTime());
-
-        console.log(`Found ${eventos.length} active events`);
+        console.log(`Found ${eventos.length} events with valid dates.`);
         
         res.status(200).json({ 
             ok: true, 
@@ -1292,7 +1301,7 @@ app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Error al obtener todos los eventos activos:", error);
+        console.error("Error al obtener todos los eventos (DIAGNÓSTICO):", error);
         res.status(500).json({ 
             ok: false, 
             mensaje: "Error interno al obtener eventos." 
