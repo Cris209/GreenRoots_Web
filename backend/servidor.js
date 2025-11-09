@@ -1309,6 +1309,79 @@ app.get('/api/eventos/activos', autenticarToken, async (req, res) => {
     }
 });
 
+// ===================================
+// 🏆 RUTA: OBTENER RANKING POR EVENTOS UNIDOS
+// ===================================
+
+/**
+ * Endpoint para obtener el ranking de voluntarios basado en el número de eventos unidos.
+ * 💡 RUTA PROTEGIDA
+ */
+app.get('/api/ranking/eventos', autenticarToken, async (req, res) => {
+    try {
+        const eventosSnapshot = await db.collection('eventos').get();
+        const rankingMap = {};
+        const uidsToFetch = new Set();
+
+        // 1. Agregación de Participaciones
+        eventosSnapshot.forEach(doc => {
+            const data = doc.data();
+            const participantes = data.participantes || [];
+
+            participantes.forEach(uid => {
+                rankingMap[uid] = (rankingMap[uid] || 0) + 1;
+                uidsToFetch.add(uid); // Recolecta todos los UIDs únicos
+            });
+        });
+
+        // 2. Convertir el mapa en un array ordenable
+        let rankingArray = Object.entries(rankingMap).map(([uid, count]) => ({ 
+            uid, 
+            count,
+            nombre: 'Usuario Desconocido' // Valor por defecto
+        }));
+
+        // 3. Ordenar el ranking (de mayor a menor)
+        rankingArray.sort((a, b) => b.count - a.count);
+
+        // 4. Obtener nombres de usuario (Opcional, pero necesario para la presentación)
+        if (uidsToFetch.size > 0) {
+            // Firestore no soporta consultas 'in' en doc.id, por lo que usamos 'Promise.all'
+            // para obtener los nombres de la colección 'usuarios' (asumiendo esa estructura).
+            const uidPromises = Array.from(uidsToFetch).map(uid => 
+                db.collection('usuarios').doc(uid).get()
+            );
+
+            const userDocs = await Promise.all(uidPromises);
+            const userNames = {};
+
+            userDocs.forEach(doc => {
+                if (doc.exists) {
+                    userNames[doc.id] = doc.data().nombre || doc.data().email.split('@')[0];
+                }
+            });
+
+            // 5. Asignar nombres al ranking
+            rankingArray = rankingArray.map(item => ({
+                ...item,
+                nombre: userNames[item.uid] || item.nombre
+            }));
+        }
+
+        res.status(200).json({ 
+            ok: true, 
+            ranking: rankingArray 
+        });
+
+    } catch (error) {
+        console.error("Error al obtener el ranking de eventos:", error);
+        res.status(500).json({ 
+            ok: false, 
+            mensaje: "Error interno al calcular el ranking." 
+        });
+    }
+});
+
 
 /**
  * Eliminar evento
