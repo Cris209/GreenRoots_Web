@@ -5,6 +5,7 @@ const axios = require("axios");
 const validator = require('validator');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
+const { FieldValue } = require('firebase-admin').firestore;
 
 // ===================================
 // CONFIGURACIÓN INICIAL DE EXPRESS Y FIREBASE
@@ -592,6 +593,45 @@ app.get('/api/arboles/mi-impacto', autenticarToken, async (req, res) => {
         res.status(500).json({ 
             ok: false, 
             mensaje: "Error interno al calcular el impacto." 
+        });
+    }
+});
+
+// ===================================
+// 🤝 RUTA: UNIRSE A EVENTO
+// ===================================
+
+/**
+ * Endpoint para que un voluntario se una a un evento.
+ * Añade el ID del voluntario al array 'participantes' del evento.
+ * 💡 RUTA PROTEGIDA
+ */
+app.patch('/api/eventos/unirse/:id', autenticarToken, async (req, res) => {
+    const eventoId = req.params.id;
+    const voluntarioId = req.uid; // ID del usuario obtenido del token
+
+    if (!eventoId) {
+        return res.status(400).json({ ok: false, mensaje: "ID del evento es requerido." });
+    }
+    
+    try {
+        const eventoRef = db.collection('eventos').doc(eventoId);
+
+        // Usar arrayUnion para añadir el ID y evitar duplicados automáticamente
+        await eventoRef.update({
+            participantes: FieldValue.arrayUnion(voluntarioId)
+        });
+
+        res.status(200).json({ 
+            ok: true, 
+            mensaje: "Te has unido al evento correctamente." 
+        });
+        
+    } catch (error) {
+        console.error(`Error al unir voluntario ${voluntarioId} al evento ${eventoId}:`, error);
+        res.status(500).json({ 
+            ok: false, 
+            mensaje: "Error interno al intentar unirse al evento." 
         });
     }
 });
