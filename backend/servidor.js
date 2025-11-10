@@ -648,42 +648,79 @@ app.patch('/api/eventos/unirse/:id', autenticarToken, async (req, res) => {
 // servidor.js - Nuevo Endpoint para Open-Meteo
 app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
     const { lat, lon } = req.params;
+    const OPENMETEO_SOIL_API = "https://api.open-meteo.com/v1/forecast"; // Redefinido aquí para claridad
 
-    // ... (Tu lógica de validación de coordenadas) ...
+    // 1. Validación de coordenadas (Usando la función ya definida)
+    // Se asume la existencia de isValidCoordinate del inicio del archivo
+    if (!isValidCoordinate(lat, true) || !isValidCoordinate(lon, false)) {
+        return res.status(400).json({ 
+            ok: false, 
+            mensaje: "Coordenadas GPS inválidas." 
+        });
+    }
 
     try {
-        const url = `${OPENMETEO_SOIL_API}?latitude=${lat}&longitude=${lon}&hourly=soil_temperature_0cm,soil_moisture_0_to_1cm`;
+        // 2. Definición de parámetros para Open-Meteo (buscando datos de suelo)
+        const openMeteoParams = {
+            latitude: lat,
+            longitude: lon,
+            // Solicitando datos de humedad y temperatura de suelo (0-7cm)
+            daily: 'soil_temperature_0_to_7cm,soil_moisture_0_to_1cm', 
+            timezone: 'auto',
+            past_days: 1, 
+        };
         
-        const response = await axios.get(url, {
-            timeout: 8000 // Esta API es muy rápida, 8s es suficiente
+        // 3. Llamada a la API externa con Axios
+        const response = await axios.get(OPENMETEO_SOIL_API, {
+            params: openMeteoParams
         });
-
-        const data = response.data;
-        // Tomamos el último valor de humedad (indicador de la calidad)
-        const moisture = data.hourly.soil_moisture_0_to_1cm.slice(-1)[0];
-        const temp = data.hourly.soil_temperature_0cm.slice(-1)[0];
         
-        let calidadTexto = "Buena";
-        if (moisture < 0.10) { // Umbral bajo
-            calidadTexto = "Seco/Bajo";
-        } else if (moisture > 0.40) { // Umbral alto
-            calidadTexto = "Saturado/Riesgo";
+        // 4. Lógica de Mapeo y Respuesta (Simulación de OCD basada en humedad)
+        const soilData = response.data.daily;
+        
+        if (!soilData || !soilData.soil_moisture_0_to_1cm || soilData.soil_moisture_0_to_1cm.length === 0) {
+            // Error en los datos de la API externa
+            return res.status(502).json({
+                ok: false,
+                mensaje: "Error al obtener o procesar datos de suelo de la fuente externa."
+            });
+        }
+        
+        const moisture = soilData.soil_moisture_0_to_1cm[0] * 100; // Convertir de fracción a porcentaje
+        
+        // Simulación de Calidad del Suelo (OCD)
+        let valorOCD_g_kg = 'Simulado';
+        let calidad = 'Desconocida';
+        
+        if (moisture >= 15.0 && moisture <= 35.0) {
+            calidad = 'Óptima (Simulada)';
+            valorOCD_g_kg = '4.5';
+        } else if (moisture < 15.0) {
+            calidad = 'Baja (Simulada - Seco)';
+            valorOCD_g_kg = '2.1';
+        } else {
+            calidad = 'Media/Riesgo (Simulada - Húmedo)';
+            valorOCD_g_kg = '3.0';
         }
 
-        const resultado = {
+        res.json({
             ok: true,
-            calidad: calidadTexto,
-            valorOCD_g_kg: moisture ? moisture.toFixed(3) : 'N/A', // Usamos humedad como valor
-            unidad: "m³/m³ Humedad",
-            profundidad: "0-1 cm",
-            mensaje: `Humedad: ${moisture ? moisture.toFixed(2) : 'N/A'} (Temp: ${temp}°C)`
-        };
-
-        res.status(200).json(resultado);
+            valorOCD_g_kg: valorOCD_g_kg,
+            calidad: calidad,
+            unidad: 'g/kg',
+            mensaje: "Datos de calidad del suelo obtenidos y simulados.",
+            humedad: moisture.toFixed(1)
+        });
 
     } catch (error) {
-        console.error("❌ Fallo con Open-Meteo:", error.message);
-        res.status(500).json({ ok: false, mensaje: "Error de conexión con API de clima." });
+        // 5. Captura de errores (SOLUCIÓN AL 500)
+        console.error("Error al obtener calidad del suelo:", error.message || error);
+        // Devolver un 500 para indicar que el backend falló internamente
+        res.status(500).json({
+            ok: false,
+            mensaje: "Error interno del servidor al procesar datos del suelo. (Verifique API Key o conexión)",
+            detalle: error.message
+        });
     }
 });
 
