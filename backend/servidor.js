@@ -1421,6 +1421,38 @@ app.get('/api/ranking/eventos', autenticarToken, async (req, res) => {
 
 
 /**
+ * Obtener todos los árboles registrados para el dashboard histórico
+ * 💡 RUTA PROTEGIDA (Se asume que verificaradmin comprueba el rol 'gobierno' o similar)
+ */
+app.get('/api/arboles/historico', autenticarToken, verificaradmin, async (req, res) => {
+    try {
+        const arbolesRef = db.collection('arboles');
+        // Se obtiene la lista completa, el cálculo de las métricas históricas se hará en el frontend
+        const snapshot = await arbolesRef.get();
+
+        if (snapshot.empty) {
+            return res.status(200).json({ ok: true, arboles: [], mensaje: "No se encontraron árboles registrados." });
+        }
+
+        const arboles = [];
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            arboles.push({
+                // Campos esenciales para el histórico: ID y la fecha de registro/creación
+                id: doc.id,
+                fechaRegistro: data.fechaRegistro || data.fechaCreacion // Usar el campo de fecha más relevante
+            });
+        });
+
+        res.status(200).json({ ok: true, arboles });
+    } catch (error) {
+        console.error("Error al obtener histórico de árboles:", error);
+        res.status(500).json({ ok: false, mensaje: "Error interno del servidor al obtener histórico." });
+    }
+});
+
+
+/**
  * Eliminar evento
  * 💡 RUTA PROTEGIDA
  */
