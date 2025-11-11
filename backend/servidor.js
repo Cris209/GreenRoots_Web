@@ -1275,7 +1275,7 @@ app.post('/api/admin/eventos', autenticarToken, verificaradmin, async (req, res)
  * Obtener todos los eventos
  * 💡 RUTA PROTEGIDA
  */
-app.get('/api/admin/eventos', autenticarToken, verificarAdmin, async (req, res) => {
+app.get('/api/admin/eventos', autenticarToken, verificaradmin, async (req, res) => {
     try {
         const eventosRef = db.collection('eventos');
         const snapshot = await eventosRef.get();
