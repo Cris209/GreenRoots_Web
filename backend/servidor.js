@@ -231,53 +231,17 @@ app.get("/api/firebase/config", (req, res) => {
 // ===================================
 
 // 📌 Ruta: REGISTRO
-// servidor.js - Reemplazar la ruta app.post("/api/registro", ...)
-
-// 📌 Ruta: REGISTRO (Versión Refactorizada y Robusta)
 app.post("/api/registro", async (req, res) => {
+    const { nombre, email, password, rol } = req.body;
+
+    // 1. Validaciones de Seguridad
+    const validaciones = [validateNombre(nombre), await validateEmail(email), validatePassword(password)];
+    for (const error of validaciones) {
+        if (error) return res.status(400).json({ ok: false, mensaje: error });
+    }
+    if (!rol) return res.status(400).json({ ok: false, mensaje: "El rol es obligatorio." });
+
     try {
-        const { nombre, email, password, rol } = req.body;
-
-        // ===================================
-        // 1. VALIDACIONES DE SEGURIDAD
-        // Se asume que validateNombre y validatePassword son SÍNCRONAS.
-        // ===================================
-        
-        const errorNombre = validateNombre(nombre);
-        if (errorNombre) return res.status(400).json({ ok: false, mensaje: errorNombre });
-
-        const errorPassword = validatePassword(password);
-        if (errorPassword) return res.status(400).json({ ok: false, mensaje: errorPassword });
-        
-        // Asumiendo que validateEmail es ASÍNCRONA (verifica unicidad en la DB)
-        // Mover esta línea DENTRO del try...catch previene errores 500 no manejados.
-        const errorEmail = await validateEmail(email); 
-        if (errorEmail) return res.status(400).json({ ok: false, mensaje: errorEmail });
-        
-        // Validación de Rol
-        if (!rol || !['Voluntario', 'Gobierno'].includes(rol)) {
-            return res.status(400).json({ ok: false, mensaje: "Rol no permitido." });
-        }
-        
-        // ===================================
-        // 2. LÓGICA DE ROL GOBIERNO
-        // ===================================
-        let rolFinal = rol;
-        let datosAdicionales = {};
-        let mensajeExito = "Usuario registrado y perfil creado correctamente";
-
-        if (rol === 'Gobierno') {
-            // Si solicita rol 'Gobierno', le asignamos 'Voluntario' temporalmente
-            rolFinal = 'Voluntario'; 
-            datosAdicionales.rolSolicitado = 'Gobierno';
-            datosAdicionales.estadoValidacionRol = 'Pendiente';
-            mensajeExito = "Solicitud de cuenta Gobierno recibida. Se te ha asignado el rol Voluntario temporalmente. Un administrador validará tu solicitud.";
-        }
-
-        // ===================================
-        // 3. CREACIÓN EN FIREBASE
-        // ===================================
-        
         // PASO 1: CREAR USUARIO EN FIREBASE AUTH
         const userRecord = await admin.auth().createUser({
             email: email,
@@ -291,54 +255,23 @@ app.post("/api/registro", async (req, res) => {
         await db.collection("usuarios").doc(uid).set({
             nombre: nombre,
             email: email,
-            rol: rolFinal, 
-            ...datosAdicionales
+            rol: rol,
         });
 
-        res.json({ ok: true, mensaje: mensajeExito });
+        res.json({ ok: true, mensaje: "Usuario registrado y perfil creado correctamente" });
 
     } catch (error) {
-        // Capturamos cualquier error que ocurra.
         console.error("Error en registro:", error);
-        
         let mensajeError = "Error en el servidor.";
-        let statusCode = 500;
-
-        // 📌 MODIFICACIÓN: Manejar el error de correo ya registrado.
-        // El código de error para el Admin SDK es 'auth/email-already-exists',
-        // mientras que para el Web SDK es 'auth/email-already-in-use'.
-        if (error.code === 'auth/email-already-exists') { 
+        if (error.code === 'auth/email-already-in-use') {
             mensajeError = "El correo electrónico ya está registrado.";
-            statusCode = 409; // 409 Conflict
+            return res.status(409).json({ ok: false, mensaje: mensajeError });
         }
-        
-        // Si no es un error de email duplicado, devolvemos 500
-        res.status(statusCode).json({ ok: false, mensaje: mensajeError });
+        res.status(500).json({ ok: false, mensaje: mensajeError });
     }
 });
 
-/**
- * 💡 RUTA PROTEGIDA: Obtener todas las solicitudes de rol 'Gobierno' Pendientes.
- */
-app.get('/api/admin/solicitudes-rol', autenticarToken, verificaradmin, async (req, res) => {
-    try {
-        // Busca usuarios que tengan rolSolicitado: 'Gobierno' Y estadoValidacionRol: 'Pendiente'
-        const snapshot = await db.collection("usuarios")
-                                 .where("rolSolicitado", "==", "Gobierno")
-                                 .where("estadoValidacionRol", "==", "Pendiente")
-                                 .get();
 
-        const solicitudes = [];
-        snapshot.forEach(doc => {
-            solicitudes.push({ id: doc.id, ...doc.data() });
-        });
-
-        res.json(solicitudes);
-    } catch (error) {
-        console.error("Error al obtener solicitudes de rol:", error);
-        res.status(500).json({ ok: false, mensaje: "Error al obtener las solicitudes." });
-    }
-});
 
 // 📌 Ruta: LOGIN
 app.post("/api/login", async (req, res) => {
@@ -952,32 +885,6 @@ app.get('/api/admin/usuarios', autenticarToken, verificaradmin, async (req, res)
     } catch (error) {
         console.error("Error al obtener usuarios:", error);
         res.status(500).json({ ok: false, mensaje: "Error al obtener usuarios." });
-    }
-});
-
-
-app.patch('/api/admin/usuarios/:id', autenticarToken, verificaradmin, async (req, res) => {
-    const userId = req.params.id;
-    const updates = req.body;
-    
-    if (!updates || Object.keys(updates).length === 0) {
-        return res.status(400).json({ mensaje: "No se proporcionaron datos para actualizar." });
-    }
-    
-    try {
-        // 1. ACTUALIZAR ROL EN FIREBASE AUTH (Necesario para los Custom Claims)
-        if (updates.rol) {
-            await admin.auth().setCustomUserClaims(userId, { rol: updates.rol });
-        }
-
-        // 2. ACTUALIZAR DOCUMENTO EN FIRESTORE (Usando set con merge: true)
-        // 📌 CAMBIO CRUCIAL: Esto garantiza que los campos se añadan si no existen.
-        await db.collection('usuarios').doc(userId).set(updates, { merge: true });
-        
-        res.status(200).json({ ok: true, mensaje: "Usuario actualizado correctamente." });
-    } catch (error) {
-        console.error("Error al actualizar usuario:", error);
-        res.status(500).json({ ok: false, mensaje: "Error al actualizar usuario." });
     }
 });
 
