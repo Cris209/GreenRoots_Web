@@ -234,141 +234,116 @@ app.get("/api/firebase/config", (req, res) => {
 app.post("/api/registro", async (req, res) => {
     const { nombre, email, password, rol } = req.body;
 
-    // Validación básica de campos
-    if (!nombre || !email || !password || !rol) {
-        return res.status(400).json({ ok: false, mensaje: "Faltan campos obligatorios: nombre, email, password o rol." });
+    // 1. Validaciones de Seguridad
+    const validaciones = [validateNombre(nombre), await validateEmail(email), validatePassword(password)];
+    for (const error of validaciones) {
+        if (error) return res.status(400).json({ ok: false, mensaje: error });
     }
+    if (!rol) return res.status(400).json({ ok: false, mensaje: "El rol es obligatorio." });
 
-    if (password.length < 6) {
-        return res.status(400).json({ ok: false, mensaje: "La contraseña debe tener al menos 6 caracteres." });
-    }
-
-    // 1. CREAR USUARIO EN FIREBASE AUTH
-    let uid;
     try {
+        // PASO 1: CREAR USUARIO EN FIREBASE AUTH
         const userRecord = await admin.auth().createUser({
             email: email,
             password: password,
             displayName: nombre,
         });
-        uid = userRecord.uid;
 
-    } catch (error) {
-        console.error("Error al crear usuario en Firebase Auth:", error.code);
+        const uid = userRecord.uid;
 
-        // Mapeo de errores comunes
-        let mensajeError = "Error interno al registrar el usuario.";
-        if (error.code === 'auth/email-already-in-use') {
-            mensajeError = "El correo electrónico ya está registrado.";
-        } else if (error.code === 'auth/invalid-email') {
-             mensajeError = "El formato del correo electrónico es inválido.";
-        }
-        return res.status(409).json({ ok: false, mensaje: mensajeError });
-    }
-
-
-    // 2. GUARDAR PERFIL EN FIRESTORE
-    // 🚨 MODIFICACIÓN CLAVE: Manejo del estado inicial y rol Gobierno
-    let estadoInicial = 'Activo'; 
-    let mensajeRespuesta = "Usuario registrado y perfil creado correctamente.";
-
-    if (rol.toLowerCase() === 'gobierno') {
-        // Si el usuario quiere ser Gobierno, su estado es Pendiente.
-        estadoInicial = 'Pendiente'; 
-        mensajeRespuesta = "Solicitud de registro como Gobierno enviada. Esperando validación del administrador.";
-    }
-
-    try {
+        // PASO 2: GUARDAR PERFIL EN FIRESTORE
         await db.collection("usuarios").doc(uid).set({
             nombre: nombre,
             email: email,
-            rol: rol, // Será 'Voluntario', 'Administrador' o 'Gobierno'
-            estado: estadoInicial, // 'Activo' o 'Pendiente'
-            fechaRegistro: new Date()
+            rol: rol,
         });
-    } catch (dbError) {
-        console.error("Error al guardar perfil en Firestore:", dbError);
-        // Opcional: Eliminar usuario de Firebase Auth si falla Firestore
-        admin.auth().deleteUser(uid).catch(delErr => console.error("Error al limpiar Auth:", delErr));
-        return res.status(500).json({ ok: false, mensaje: "Error al crear el perfil de usuario. Intente de nuevo." });
-    }
 
-    res.json({ ok: true, mensaje: mensajeRespuesta });
-});
-
-// servidor.js
-
-// 🔒 RUTA 2: INICIO DE SESIÓN
-// ===================================
-app.post("/api/login", async (req, res) => {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-        return res.status(400).json({ ok: false, mensaje: "Faltan campos obligatorios: email o password." });
-    }
-
-    // 1. AUTENTICACIÓN CON FIREBASE AUTH REST API (Para obtener el ID Token)
-    let uid;
-    let idToken;
-    try {
-        const response = await axios.post(
-            `https://www.googleapis.com/identitytoolkit/v3/relyingparty/verifyPassword?key=${FIREBASE_WEB_API_KEY}`,
-            {
-                email: email,
-                password: password,
-                returnSecureToken: true
-            }
-        );
-        idToken = response.data.idToken;
-        uid = response.data.localId;
+        res.json({ ok: true, mensaje: "Usuario registrado y perfil creado correctamente" });
 
     } catch (error) {
-        // Manejar errores de autenticación (e.g., credenciales incorrectas)
-        console.error("Error en verifyPassword:", error.response?.data?.error?.message || error.message);
-        return res.status(401).json({ ok: false, mensaje: "Credenciales inválidas. Correo o contraseña incorrectos." });
-    }
-
-    // 2. GENERAR UN TOKEN PERSONALIZADO (Para usar en el backend)
-    let authToken;
-    try {
-        // El token personalizado es más seguro para autenticar futuras peticiones en tu backend
-        authToken = await admin.auth().createCustomToken(uid);
-    } catch (tokenError) {
-        console.error("Error al crear Custom Token:", tokenError);
-        return res.status(500).json({ ok: false, mensaje: "Error interno al generar token de sesión." });
-    }
-
-    // 3. OBTENER EL PERFIL DE FIRESTORE
-    const doc = await db.collection("usuarios").doc(uid).get();
-
-    if (!doc.exists) {
-        // Si por alguna razón el usuario existe en Auth pero no en Firestore
-        return res.status(404).json({ ok: false, mensaje: "Perfil de usuario no encontrado." });
-    }
-
-    const usuario = doc.data();
-
-    // 🚨 MODIFICACIÓN CLAVE: Bloqueo de usuario en estado 'Pendiente'
-    if (usuario.rol.toLowerCase() === 'gobierno' && usuario.estado === 'Pendiente') {
-        // Devolvemos 403 Forbidden para indicar que la acción está prohibida.
-        return res.status(403).json({ ok: false, mensaje: "Usuario bloqueado en espera de validación." });
-    }
-
-    // 4. RESPUESTA EXITOSA
-    res.json({ 
-        ok: true, 
-        mensaje: "Inicio de sesión exitoso.",
-        // El idToken es el que usa el frontend para hacer peticiones en Firebase, 
-        // pero el authToken (Custom Token) es el que usaremos en la autenticarToken middleware.
-        token: authToken, 
-        userData: {
-            uid: uid,
-            nombre: usuario.nombre,
-            email: usuario.email,
-            rol: usuario.rol,
-            estado: usuario.estado // Retornar el estado al frontend
+        console.error("Error en registro:", error);
+        let mensajeError = "Error en el servidor.";
+        if (error.code === 'auth/email-already-in-use') {
+            mensajeError = "El correo electrónico ya está registrado.";
+            return res.status(409).json({ ok: false, mensaje: mensajeError });
         }
-    });
+        res.status(500).json({ ok: false, mensaje: mensajeError });
+    }
+});
+
+
+
+// 📌 Ruta: LOGIN
+app.post("/api/login", async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) return res.status(400).json({ ok: false, mensaje: "Faltan datos." });
+        
+        // 1. Validación de Email
+        const emailError = await validateEmail(email);
+        if (emailError) return res.status(400).json({ ok: false, mensaje: emailError });
+
+        // 2. Bloqueo por Intentos Fallidos
+        const now = Date.now();
+        const attempts = loginAttempts[email];
+
+        if (attempts) {
+            if (attempts.count >= MAX_ATTEMPTS && now - attempts.time < LOCKOUT_TIME_MS) {
+                const remainingTime = Math.ceil((LOCKOUT_TIME_MS - (now - attempts.time)) / 60000); // en minutos
+                return res.status(429).json({ 
+                    ok: false, 
+                    mensaje: `Demasiados intentos de inicio de sesión. Intente de nuevo en ${remainingTime} minutos.` 
+                });
+            } else if (now - attempts.time >= LOCKOUT_TIME_MS) {
+                delete loginAttempts[email]; // Reset
+            }
+        }
+        
+        let uid;
+        let idToken; // Almacenará el token de autenticación
+
+        // --- PASO 3: AUTENTICAR CON FIREBASE REST API ---
+        try {
+            const loginUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_WEB_API_KEY}`;
+            const authResponse = await axios.post(loginUrl, { email, password, returnSecureToken: true });
+            
+            delete loginAttempts[email]; // Éxito: borramos intentos fallidos
+            uid = authResponse.data.localId;
+            idToken = authResponse.data.idToken; // Captura el ID Token
+            
+        } catch (authError) {
+            // Fallo: Incrementar contador
+            loginAttempts[email] = { count: (loginAttempts[email]?.count || 0) + 1, time: now };
+            return res.status(401).json({ ok: false, mensaje: "Credenciales incorrectas o usuario no encontrado." });
+        }
+        
+        // --- PASO 4: OBTENER EL PERFIL DE FIRESTORE ---
+        const doc = await db.collection("usuarios").doc(uid).get();
+
+        if (!doc.exists) {
+            return res.status(404).json({ ok: false, mensaje: "Perfil de usuario no encontrado." });
+        }
+
+        const usuario = doc.data();
+
+        // --- PASO 5: RESPUESTA EXITOSA ---
+        res.json({ 
+            ok: true, 
+            mensaje: "Sesión iniciada", 
+            token: idToken, // ¡Devuelve el token!
+            usuario: { 
+                id: uid, // Include UID for frontend to use as identifier
+                email: usuario.email, 
+                nombre: usuario.nombre, 
+                rol: usuario.rol 
+            } 
+        });
+        
+    } catch (error) {
+        console.error("Error general en login:", error);
+        res.status(500).json({ ok: false, mensaje: "Error interno del servidor." });
+    }
 });
 
 // ===================================
@@ -685,6 +660,7 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
     }
 
     try {
+        
         // 2. Definición de parámetros para Open-Meteo (buscando datos de suelo)
         const openMeteoParams = {
             latitude: lat,
@@ -738,12 +714,33 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
         });
 
     } catch (error) {
-        // 5. Captura de errores (SOLUCIÓN AL 500)
-        console.error("Error al obtener calidad del suelo:", error.message || error);
-        // Devolver un 500 para indicar que el backend falló internamente
-        res.status(500).json({
+        // 5. Captura de errores MEJORADA para diagnóstico
+        console.error("Error al obtener calidad del suelo:", error.message);
+        
+        let statusCode = 500;
+        let userMessage = "Error interno del servidor al procesar datos del suelo. (Revise consola del servidor)";
+
+        if (error.response) {
+            // El error es un estado HTTP no 2xx de la API externa (Open-Meteo)
+            statusCode = error.response.status; 
+            // Usamos 502 (Bad Gateway) para indicar que el servicio externo falló
+            userMessage = `Error de la API externa (${statusCode}): La API de Open-Meteo devolvió un error. Revise los parámetros de la solicitud.`;
+            // Devolvemos el status 502 al cliente, no un 500
+            res.status(502).json({ 
+                ok: false,
+                mensaje: userMessage,
+                detalle_api: error.response.data || error.response.statusText
+            });
+            return; // Detener la ejecución
+        } else if (error.request) {
+            // La solicitud fue hecha, pero no se recibió respuesta (problema de red del servidor)
+            userMessage = "El servidor no pudo contactar al servicio externo de datos del suelo (Problema de red/DNS).";
+        }
+        
+        // Si no es un error de Axios (ej. un error de código, TypeError), se devuelve 500
+        res.status(statusCode).json({
             ok: false,
-            mensaje: "Error interno del servidor al procesar datos del suelo. (Verifique API Key o conexión)",
+            mensaje: userMessage,
             detalle: error.message
         });
     }
@@ -885,102 +882,31 @@ app.patch('/api/admin/validacion/:id', autenticarToken, verificaradmin, async (r
  */
 app.get('/api/admin/usuarios', autenticarToken, verificaradmin, async (req, res) => {
     try {
-        // Obtenemos todos los usuarios
         const snapshot = await db.collection('usuarios').get();
-
-        const users = snapshot.docs.map(doc => ({
-            uid: doc.id,
-            ...doc.data()
-        }));
-
-        // Filtrar en el código para excluir usuarios con estado 'Pendiente'
-        const usersFiltrados = users.filter(user => user.estado !== 'Pendiente');
-
-        res.status(200).json({ ok: true, users: usersFiltrados });
-    } catch (error) {
-        console.error("Error al obtener usuarios para gestión (excluyendo pendientes):", error);
-        res.status(500).json({ ok: false, mensaje: "Error al obtener la lista de usuarios." });
-    }
-});
-
-
-// 🚨 NUEVA RUTA: Endpoint para Solicitudes de Rol Gobierno Pendientes
-app.get('/api/admin/usuarios/solicitudes-gobierno', autenticarToken, verificaradmin, async (req, res) => {
-    try {
-        const snapshot = await db.collection('usuarios')
-            .where('rol', '==', 'Gobierno')
-            .where('estado', '==', 'Pendiente')
-            .get();
         
-        const solicitudes = snapshot.docs.map(doc => ({
-            uid: doc.id,
-            ...doc.data()
+        const usuarios = await Promise.all(snapshot.docs.map(async (doc) => {
+            const userData = doc.data();
+            
+            // Get additional info from Firebase Auth
+            let authInfo = { disabled: false };
+            try {
+                const authUser = await admin.auth().getUser(doc.id);
+                authInfo = { disabled: authUser.disabled };
+            } catch (authError) {
+                console.warn(`Could not get auth info for ${doc.id}`);
+            }
+            
+            return {
+                uid: doc.id,
+                ...userData,
+                activo: !authInfo.disabled
+            };
         }));
-
-        const solicitudesFiltradas = solicitudes.map(({ rol, estado, nombre, email, fechaRegistro, uid }) => ({
-            uid,
-            nombre,
-            email,
-            // Convertir Timestamp de Firestore a formato usable
-            fechaRegistro: fechaRegistro?.toDate ? fechaRegistro.toDate().toISOString() : null,
-            rol, 
-            estado
-        }));
-
-        res.status(200).json({ ok: true, solicitudes: solicitudesFiltradas });
-
+        
+        res.status(200).json({ ok: true, usuarios });
     } catch (error) {
-        console.error("Error al obtener solicitudes de rol Gobierno:", error);
-        res.status(500).json({ ok: false, mensaje: "Error interno al obtener solicitudes." });
-    }
-});
-
-
-// 🚨 NUEVA RUTA: Endpoint para Aprobar/Rechazar Solicitudes de Rol Gobierno
-app.patch('/api/admin/usuarios/validar-gobierno/:uid', autenticarToken, verificaradmin, async (req, res) => {
-    const uid = req.params.uid;
-    const { accion } = req.body; // 'aprobar' o 'rechazar'
-
-    if (accion !== 'aprobar' && accion !== 'rechazar') {
-        return res.status(400).json({ ok: false, mensaje: "Acción inválida. Use 'aprobar' o 'rechazar'." });
-    }
-
-    try {
-        const userRef = db.collection('usuarios').doc(uid);
-        const userDoc = await userRef.get();
-
-        if (!userDoc.exists) {
-            return res.status(404).json({ ok: false, mensaje: "Usuario no encontrado." });
-        }
-
-        const userData = userDoc.data();
-        if (userData.rol !== 'Gobierno' || userData.estado !== 'Pendiente') {
-            return res.status(400).json({ ok: false, mensaje: "El usuario no tiene una solicitud pendiente de rol Gobierno." });
-        }
-
-        if (accion === 'aprobar') {
-            // Se aprueba y se cambia el estado a 'Activo'
-            await userRef.update({ 
-                estado: 'Activo',
-                fechaValidacion: new Date()
-            });
-            res.status(200).json({ ok: true, mensaje: `Rol de Gobierno para ${uid} aprobado y activado.` });
-
-        } else { // accion === 'rechazar'
-            // Se rechaza, se revierte el rol a 'Voluntario' y se cambia el estado a 'Rechazado' (para auditoría)
-            await userRef.update({
-                rol: 'Voluntario',
-                estado: 'Rechazado', 
-                motivoRechazo: 'Solicitud de rol Gobierno rechazada por el administrador.',
-                fechaValidacion: new Date()
-            });
-            // Opcional: Podrías querer notificar al usuario, o eliminar su cuenta de Firebase Auth.
-            res.status(200).json({ ok: true, mensaje: `Solicitud de rol Gobierno para ${uid} rechazada. Rol cambiado a Voluntario.` });
-        }
-
-    } catch (error) {
-        console.error(`Error al validar rol Gobierno para ${uid}:`, error);
-        res.status(500).json({ ok: false, mensaje: "Error interno al procesar la solicitud." });
+        console.error("Error al obtener usuarios:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener usuarios." });
     }
 });
 
