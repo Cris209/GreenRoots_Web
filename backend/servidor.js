@@ -50,6 +50,7 @@ const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME; // 🚨 NUEVA
 const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;       // 🚨 NUEVA
 const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
 const OPENMETEO_SOIL_API = "https://api.open-meteo.com/v1/forecast";
+const NASA_POWER_API = "https://power.larc.nasa.gov/api/temporal/daily/point";
 
 cloudinary.config({
     cloud_name: CLOUDINARY_CLOUD_NAME,
