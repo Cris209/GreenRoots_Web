@@ -1543,7 +1543,7 @@ app.get('/api/arboles/historico', autenticarToken, verificaradmin, async (req, r
 // =========================================================
 // 2. RUTA DELETE: Eliminar un evento por ID
 // =========================================================
-app.delete('/api/admin/eventos/:id', autenticarToken, verificarAdmin, async (req, res) => {
+app.delete('/api/admin/eventos/:id', autenticarToken, verificaradmin, async (req, res) => {
     const { id } = req.params;
 
     try {
@@ -1580,7 +1580,7 @@ app.delete('/api/admin/eventos/:id', autenticarToken, verificarAdmin, async (req
 // 3. RUTA PUT/PATCH: Actualizar un evento por ID (ejemplo básico)
 // Se recomienda usar PATCH si solo se envían los campos modificados.
 // =========================================================
-app.put('/api/admin/eventos/:id', autenticarToken, verificarAdmin, async (req, res) => {
+app.put('/api/admin/eventos/:id', autenticarToken, verificaradmin, async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
