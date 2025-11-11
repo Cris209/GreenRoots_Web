@@ -954,6 +954,33 @@ app.get('/api/admin/usuarios', autenticarToken, verificaradmin, async (req, res)
         res.status(500).json({ ok: false, mensaje: "Error al obtener usuarios." });
     }
 });
+app.patch('/api/admin/usuarios/:id', autenticarToken, verificaradmin, async (req, res) => {
+    const userId = req.params.id;
+    const updates = req.body;
+    
+    if (!updates || Object.keys(updates).length === 0) {
+        return res.status(400).json({ mensaje: "No se proporcionaron datos para actualizar." });
+    }
+    
+    try {
+        // 1. ACTUALIZAR ROL EN FIREBASE AUTH SI ES NECESARIO (CRUCIAL PARA LA SEGURIDAD)
+        if (updates.rol) {
+            // Esto actualiza los Custom Claims, que se usan en verificaradmin
+            await admin.auth().setCustomUserClaims(userId, { rol: updates.rol });
+        }
+
+        // 2. ACTUALIZAR DOCUMENTO EN FIRESTORE
+        await db.collection('usuarios').doc(userId).update(updates);
+        
+        // 3. (OPCIONAL) Revocar tokens para forzar al usuario a relogear y obtener el nuevo rol
+        // await admin.auth().revokeRefreshTokens(userId); 
+        
+        res.status(200).json({ ok: true, mensaje: "Usuario actualizado correctamente." });
+    } catch (error) {
+        console.error("Error al actualizar usuario:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al actualizar usuario." });
+    }
+});
 
 /**
  * Actualizar usuario (rol y/o estado)
