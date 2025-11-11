@@ -646,101 +646,100 @@ app.patch('/api/eventos/unirse/:id', autenticarToken, async (req, res) => {
  * 💡 RUTA PROTEGIDA (Asumiendo que se requiere autenticación)
  */
 // servidor.js - Nuevo Endpoint para Open-Meteo
+// ===================================
+// RUTA DE DATOS DEL SUELO CORREGIDA CON NASA POWER
+// ===================================
 app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
     const { lat, lon } = req.params;
-    const OPENMETEO_SOIL_API = "https://api.open-meteo.com/v1/forecast"; // Redefinido aquí para claridad
+    // URL base de la API de NASA POWER para datos diarios de agricultura
+    const NASA_POWER_API = "https://power.larc.nasa.gov/api/temporal/daily/point";
 
-    // 1. Validación de coordenadas (Usando la función ya definida)
-    // Se asume la existencia de isValidCoordinate del inicio del archivo
+    // 1. Validación de coordenadas (Se mantiene tu lógica)
     if (!isValidCoordinate(lat, true) || !isValidCoordinate(lon, false)) {
-        return res.status(400).json({ 
-            ok: false, 
-            mensaje: "Coordenadas GPS inválidas." 
+        return res.status(400).json({
+            ok: false,
+            mensaje: "Coordenadas GPS inválidas."
         });
     }
 
+    // Definir la fecha de inicio y fin para buscar el día más reciente (ayer)
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1); // Obtiene la fecha de ayer
+
+    const dateStr = yesterday.toISOString().split('T')[0].replace(/-/g, ''); // Formato: AAAAMMDD
+
     try {
-        
-        // 2. Definición de parámetros para Open-Meteo (buscando datos de suelo)
-        const openMeteoParams = {
-            latitude: lat,
+        // 2. Definición de parámetros para NASA POWER
+        const nasaParams = {
+            parameters: 'SOILM1,TS_1', // Humedad del suelo (0-10cm) y Temp. del suelo (0-10cm)
+            community: 'AG', // Comunidad Agrícola
             longitude: lon,
-            // Solicitando datos de humedad y temperatura de suelo (0-7cm)
-            daily: 'soil_temperature_0_to_7cm,soil_moisture_0_to_1cm', 
-            timezone: 'auto',
-            past_days: 1, 
+            latitude: lat,
+            startdate: dateStr, // Solo el día de ayer
+            enddate: dateStr,   // Solo el día de ayer
+            format: 'JSON'
         };
-        
+
         // 3. Llamada a la API externa con Axios
-        const response = await axios.get(OPENMETEO_SOIL_API, {
-            params: openMeteoParams
+        const response = await axios.get(NASA_POWER_API, {
+            params: nasaParams
         });
-        
-        // 4. Lógica de Mapeo y Respuesta (Simulación de OCD basada en humedad)
-        const soilData = response.data.daily;
-        
-        if (!soilData || !soilData.soil_moisture_0_to_1cm || soilData.soil_moisture_0_to_1cm.length === 0) {
-            // Error en los datos de la API externa
+
+        // 4. Extracción y Lógica de Mapeo
+        const data = response.data;
+        const soilData = data.properties.parameter;
+
+        // Extraer los valores del día solicitado. Las claves son AAAAMMDD
+        const moistureValue = soilData.SOILM1[dateStr]; // Humedad de suelo (fracción de 0 a 1)
+        const tempValue = soilData.TS_1[dateStr];     // Temperatura del suelo (°C)
+
+        if (moistureValue === -999 || tempValue === -999 || moistureValue === null || tempValue === null) {
+            // -999 es el valor de 'valor faltante' en la API de NASA POWER
             return res.status(502).json({
                 ok: false,
-                mensaje: "Error al obtener o procesar datos de suelo de la fuente externa."
+                mensaje: "Datos de suelo no disponibles para estas coordenadas o fecha en NASA POWER."
             });
         }
-        
-        const moisture = soilData.soil_moisture_0_to_1cm[0] * 100; // Convertir de fracción a porcentaje
-        
-        // Simulación de Calidad del Suelo (OCD)
-        let valorOCD_g_kg = 'Simulado';
+
+        // Convertir la humedad a porcentaje (para mantener consistencia con tu lógica original)
+        // La humedad de NASA es m³/m³ (fracción de 0 a 1), se multiplica por 100 para porcentaje.
+        const moisturePercent = moistureValue * 100;
+
+        // --- Lógica de Calidad Simulada basada en Humedad y Temp ---
         let calidad = 'Desconocida';
         
-        if (moisture >= 15.0 && moisture <= 35.0) {
-            calidad = 'Óptima (Simulada)';
-            valorOCD_g_kg = '4.5';
-        } else if (moisture < 15.0) {
-            calidad = 'Baja (Simulada - Seco)';
-            valorOCD_g_kg = '2.1';
+        // Simular OCD (Carbono Orgánico) basado en la temperatura y humedad (ejemplo simple)
+        // Usamos la humedad como factor principal para clasificar
+        if (moisturePercent >= 18.0 && moisturePercent <= 38.0) {
+             calidad = `Óptima (Humedad ${moisturePercent.toFixed(1)}%)`;
+        } else if (moisturePercent < 18.0) {
+            calidad = `Baja (Seco - Humedad ${moisturePercent.toFixed(1)}%)`;
         } else {
-            calidad = 'Media/Riesgo (Simulada - Húmedo)';
-            valorOCD_g_kg = '3.0';
+            calidad = `Media/Riesgo (Húmedo - Humedad ${moisturePercent.toFixed(1)}%)`;
         }
 
+        // En lugar de OCD (que no proporciona NASA POWER), devolvemos la Temperatura
+        const valorAdicional = tempValue.toFixed(1); // Temperatura en °C
+
+        // --- RESPUESTA EXITOSA ---
         res.json({
             ok: true,
-            valorOCD_g_kg: valorOCD_g_kg,
+            // Reemplazamos valorOCD_g_kg por la temperatura para mantener el formato de respuesta del frontend
+            valorOCD_g_kg: valorAdicional, 
             calidad: calidad,
-            unidad: 'g/kg',
-            mensaje: "Datos de calidad del suelo obtenidos y simulados.",
-            humedad: moisture.toFixed(1)
+            unidad: `Tierra: ${valorAdicional}°C`, // Mensaje descriptivo para la unidad
+            mensaje: "Datos de calidad del suelo obtenidos de NASA POWER.",
+            humedad: moisturePercent.toFixed(1)
         });
 
     } catch (error) {
-        // 5. Captura de errores MEJORADA para diagnóstico
-        console.error("Error al obtener calidad del suelo:", error.message);
-        
-        let statusCode = 500;
-        let userMessage = "Error interno del servidor al procesar datos del suelo. (Revise consola del servidor)";
+        // 5. Captura de errores (Incluye fallos de conexión o 4xx de la API de NASA)
+        console.error("Error al obtener calidad del suelo de NASA POWER:", error.message || error);
 
-        if (error.response) {
-            // El error es un estado HTTP no 2xx de la API externa (Open-Meteo)
-            statusCode = error.response.status; 
-            // Usamos 502 (Bad Gateway) para indicar que el servicio externo falló
-            userMessage = `Error de la API externa (${statusCode}): La API de Open-Meteo devolvió un error. Revise los parámetros de la solicitud.`;
-            // Devolvemos el status 502 al cliente, no un 500
-            res.status(502).json({ 
-                ok: false,
-                mensaje: userMessage,
-                detalle_api: error.response.data || error.response.statusText
-            });
-            return; // Detener la ejecución
-        } else if (error.request) {
-            // La solicitud fue hecha, pero no se recibió respuesta (problema de red del servidor)
-            userMessage = "El servidor no pudo contactar al servicio externo de datos del suelo (Problema de red/DNS).";
-        }
-        
-        // Si no es un error de Axios (ej. un error de código, TypeError), se devuelve 500
-        res.status(statusCode).json({
+        res.status(500).json({
             ok: false,
-            mensaje: userMessage,
+            mensaje: "Error interno del servidor al procesar datos del suelo de NASA.",
             detalle: error.message
         });
     }
