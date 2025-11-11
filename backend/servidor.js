@@ -317,7 +317,28 @@ app.post("/api/registro", async (req, res) => {
     }
 });
 
+/**
+ * 💡 RUTA PROTEGIDA: Obtener todas las solicitudes de rol 'Gobierno' Pendientes.
+ */
+app.get('/api/admin/solicitudes-rol', autenticarToken, verificaradmin, async (req, res) => {
+    try {
+        // Busca usuarios que tengan rolSolicitado: 'Gobierno' Y estadoValidacionRol: 'Pendiente'
+        const snapshot = await db.collection("usuarios")
+                                 .where("rolSolicitado", "==", "Gobierno")
+                                 .where("estadoValidacionRol", "==", "Pendiente")
+                                 .get();
 
+        const solicitudes = [];
+        snapshot.forEach(doc => {
+            solicitudes.push({ id: doc.id, ...doc.data() });
+        });
+
+        res.json(solicitudes);
+    } catch (error) {
+        console.error("Error al obtener solicitudes de rol:", error);
+        res.status(500).json({ ok: false, mensaje: "Error al obtener las solicitudes." });
+    }
+});
 
 // 📌 Ruta: LOGIN
 app.post("/api/login", async (req, res) => {
