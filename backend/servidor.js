@@ -298,19 +298,21 @@ app.post("/api/registro", async (req, res) => {
         res.json({ ok: true, mensaje: mensajeExito });
 
     } catch (error) {
-        // Capturamos cualquier error que ocurra, incluido 'auth/email-already-in-use'
+        // Capturamos cualquier error que ocurra.
         console.error("Error en registro:", error);
         
         let mensajeError = "Error en el servidor.";
         let statusCode = 500;
 
-        // Manejo específico del error de correo duplicado
-        if (error.code === 'auth/email-already-in-use') {
+        // 📌 MODIFICACIÓN: Manejar el error de correo ya registrado.
+        // El código de error para el Admin SDK es 'auth/email-already-exists',
+        // mientras que para el Web SDK es 'auth/email-already-in-use'.
+        if (error.code === 'auth/email-already-exists') { 
             mensajeError = "El correo electrónico ya está registrado.";
             statusCode = 409; // 409 Conflict
         }
         
-        // Si no es un error de email duplicado, devolvemos un 500
+        // Si no es un error de email duplicado, devolvemos 500
         res.status(statusCode).json({ ok: false, mensaje: mensajeError });
     }
 });
