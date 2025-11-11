@@ -231,35 +231,53 @@ app.get("/api/firebase/config", (req, res) => {
 // ===================================
 
 // 📌 Ruta: REGISTRO
+// servidor.js - Reemplazar la ruta app.post("/api/registro", ...)
+
+// 📌 Ruta: REGISTRO (Versión Refactorizada y Robusta)
 app.post("/api/registro", async (req, res) => {
-    const { nombre, email, password, rol } = req.body;
-
-    // 1. Validaciones de Seguridad (Asegurar que 'rol' sea válido)
-    const validaciones = [validateNombre(nombre), await validateEmail(email), validatePassword(password)];
-    for (const error of validaciones) {
-        if (error) return res.status(400).json({ ok: false, mensaje: error });
-    }
-    
-    if (!rol || !['Voluntario', 'Gobierno'].includes(rol)) {
-        return res.status(400).json({ ok: false, mensaje: "Rol no permitido." });
-    }
-
-    // --- LÓGICA DE VALIDACIÓN DE ROL GOBIERNO ---
-    let rolFinal = rol;
-    let datosAdicionales = {};
-    let mensajeExito = "Usuario registrado y perfil creado correctamente";
-
-    if (rol === 'Gobierno') {
-        // Si solicita rol 'Gobierno', le asignamos 'Voluntario' temporalmente
-        // y guardamos la solicitud con estado 'Pendiente'.
-        rolFinal = 'Voluntario'; 
-        datosAdicionales.rolSolicitado = 'Gobierno';
-        datosAdicionales.estadoValidacionRol = 'Pendiente';
-        mensajeExito = "Solicitud de cuenta Gobierno recibida. Se te ha asignado el rol Voluntario temporalmente. Un administrador validará tu solicitud.";
-    }
-    // ---------------------------------------------
-
     try {
+        const { nombre, email, password, rol } = req.body;
+
+        // ===================================
+        // 1. VALIDACIONES DE SEGURIDAD
+        // Se asume que validateNombre y validatePassword son SÍNCRONAS.
+        // ===================================
+        
+        const errorNombre = validateNombre(nombre);
+        if (errorNombre) return res.status(400).json({ ok: false, mensaje: errorNombre });
+
+        const errorPassword = validatePassword(password);
+        if (errorPassword) return res.status(400).json({ ok: false, mensaje: errorPassword });
+        
+        // Asumiendo que validateEmail es ASÍNCRONA (verifica unicidad en la DB)
+        // Mover esta línea DENTRO del try...catch previene errores 500 no manejados.
+        const errorEmail = await validateEmail(email); 
+        if (errorEmail) return res.status(400).json({ ok: false, mensaje: errorEmail });
+        
+        // Validación de Rol
+        if (!rol || !['Voluntario', 'Gobierno'].includes(rol)) {
+            return res.status(400).json({ ok: false, mensaje: "Rol no permitido." });
+        }
+        
+        // ===================================
+        // 2. LÓGICA DE ROL GOBIERNO
+        // ===================================
+        let rolFinal = rol;
+        let datosAdicionales = {};
+        let mensajeExito = "Usuario registrado y perfil creado correctamente";
+
+        if (rol === 'Gobierno') {
+            // Si solicita rol 'Gobierno', le asignamos 'Voluntario' temporalmente
+            rolFinal = 'Voluntario'; 
+            datosAdicionales.rolSolicitado = 'Gobierno';
+            datosAdicionales.estadoValidacionRol = 'Pendiente';
+            mensajeExito = "Solicitud de cuenta Gobierno recibida. Se te ha asignado el rol Voluntario temporalmente. Un administrador validará tu solicitud.";
+        }
+
+        // ===================================
+        // 3. CREACIÓN EN FIREBASE
+        // ===================================
+        
         // PASO 1: CREAR USUARIO EN FIREBASE AUTH
         const userRecord = await admin.auth().createUser({
             email: email,
@@ -270,7 +288,6 @@ app.post("/api/registro", async (req, res) => {
         const uid = userRecord.uid;
 
         // PASO 2: GUARDAR PERFIL EN FIRESTORE
-        // Utilizamos rolFinal y añadimos los datos adicionales si existen
         await db.collection("usuarios").doc(uid).set({
             nombre: nombre,
             email: email,
@@ -281,13 +298,20 @@ app.post("/api/registro", async (req, res) => {
         res.json({ ok: true, mensaje: mensajeExito });
 
     } catch (error) {
+        // Capturamos cualquier error que ocurra, incluido 'auth/email-already-in-use'
         console.error("Error en registro:", error);
+        
         let mensajeError = "Error en el servidor.";
+        let statusCode = 500;
+
+        // Manejo específico del error de correo duplicado
         if (error.code === 'auth/email-already-in-use') {
             mensajeError = "El correo electrónico ya está registrado.";
-            return res.status(409).json({ ok: false, mensaje: mensajeError });
+            statusCode = 409; // 409 Conflict
         }
-        res.status(500).json({ ok: false, mensaje: mensajeError });
+        
+        // Si no es un error de email duplicado, devolvemos un 500
+        res.status(statusCode).json({ ok: false, mensaje: mensajeError });
     }
 });
 
