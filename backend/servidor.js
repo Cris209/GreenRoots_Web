@@ -348,6 +348,64 @@ app.post("/api/login", async (req, res) => {
 });
 
 // ===================================
+// 🔐 RUTA: SOLICITAR RESTABLECIMIENTO DE CONTRASEÑA
+// ===================================
+
+/**
+ * Endpoint para solicitar a Firebase el envío de un correo de restablecimiento de contraseña.
+ * Utiliza Firebase Admin SDK.
+ * 💡 RUTA PÚBLICA (No requiere autenticación)
+ */
+app.post("/api/restablecer-contrasena", async (req, res) => {
+    const { email } = req.body;
+
+    if (!email) {
+        return res.status(400).json({ ok: false, mensaje: "El correo electrónico es obligatorio." });
+    }
+
+    // Validación de formato de email
+    const emailError = await validateEmail(email); 
+    if (emailError) {
+        return res.status(400).json({ ok: false, mensaje: emailError });
+    }
+
+    try {
+        // Enviar el correo de restablecimiento de contraseña
+        // Firebase Auth se encarga de verificar si el correo existe
+        await admin.auth().sendPasswordResetEmail(email);
+
+        // Es importante no revelar si el correo existe o no por motivos de seguridad.
+        // Se envía un mensaje genérico de éxito.
+        res.json({ 
+            ok: true, 
+            mensaje: "Si el correo está registrado, se ha enviado un enlace para restablecer tu contraseña." 
+        });
+
+    } catch (error) {
+        console.error("Error al solicitar restablecimiento de contraseña:", error);
+
+        // Manejar errores comunes de Firebase Auth
+        let mensajeError = "Error interno del servidor al procesar la solicitud.";
+        
+        if (error.code === 'auth/user-not-found') {
+            // Por seguridad, devolvemos el mensaje genérico de éxito, incluso si el usuario no existe.
+            // Esto evita la enumeración de usuarios.
+            return res.json({ 
+                ok: true, 
+                mensaje: "Si el correo está registrado, se ha enviado un enlace para restablecer tu contraseña." 
+            });
+        } 
+        
+        if (error.code === 'auth/invalid-email') {
+            mensajeError = "El formato del correo electrónico es inválido.";
+            return res.status(400).json({ ok: false, mensaje: mensajeError });
+        }
+        
+        res.status(500).json({ ok: false, mensaje: mensajeError });
+    }
+});
+
+// ===================================
 // 🌳 RUTAS DEL VOLUNTARIO (Colección 'arboles')
 // ===================================
 
