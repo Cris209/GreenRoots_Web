@@ -1275,21 +1275,63 @@ app.post('/api/admin/eventos', autenticarToken, verificaradmin, async (req, res)
  * Obtener todos los eventos
  * 💡 RUTA PROTEGIDA
  */
-app.get('/api/admin/eventos', autenticarToken, verificaradmin, async (req, res) => {
+app.get('/api/admin/eventos', autenticarToken, verificarAdmin, async (req, res) => {
     try {
-        const snapshot = await db.collection('eventos')
-            .orderBy('fechaCreacion', 'desc')
-            .get();
-        
-        const eventos = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
-        
-        res.status(200).json({ ok: true, eventos });
+        const eventosRef = db.collection('eventos');
+        const snapshot = await eventosRef.get();
+
+        const eventos = snapshot.docs.map(doc => {
+            const data = doc.data();
+            let eventDate = null;
+            let parseSuccess = false;
+
+            if (data.fecha) {
+                if (typeof data.fecha.toDate === 'function') {
+                    // Es un Timestamp de Firestore
+                    eventDate = data.fecha.toDate();
+                    parseSuccess = true;
+                } else if (typeof data.fecha === 'string') {
+                    // Es una cadena de texto (String)
+                    eventDate = new Date(data.fecha);
+                    if (!isNaN(eventDate.getTime())) {
+                        parseSuccess = true;
+                    }
+                }
+            }
+            
+            if (!parseSuccess) {
+                 // Si la fecha es inválida o nula, devolvemos el evento para que el admin lo revise, pero marcamos la fecha como string
+                 eventDate = data.fecha || 'Fecha inválida/no definida';
+            } else {
+                 // Si es válido, lo dejamos como objeto Date
+                 eventDate = eventDate;
+            }
+
+            return {
+                id: doc.id,
+                titulo: data.titulo || 'Evento sin título',
+                fecha: eventDate instanceof Date ? eventDate.toISOString() : eventDate, // ISO string si es Date, o el valor crudo si es string
+                descripcion: data.descripcion || '',
+                ubicacion: data.ubicacion || 'Ubicación pendiente',
+                hora: data.hora || 'Hora pendiente',
+                participantes: data.participantes || [],
+                activo: data.activo !== undefined ? data.activo : true,
+                creadorId: data.creadorId || 'N/A', // Es importante para el frontend
+                ...data
+            };
+        });
+
+        res.status(200).json({
+            ok: true,
+            eventos: eventos
+        });
+
     } catch (error) {
-        console.error("Error al obtener eventos:", error);
-        res.status(500).json({ ok: false, mensaje: "Error al obtener eventos." });
+        console.error("Error al obtener eventos de administración:", error);
+        res.status(500).json({
+            ok: false,
+            mensaje: "Error interno al obtener eventos de administración."
+        });
     }
 });
 
@@ -1498,16 +1540,35 @@ app.get('/api/arboles/historico', autenticarToken, verificaradmin, async (req, r
  * Eliminar evento
  * 💡 RUTA PROTEGIDA
  */
-app.delete('/api/admin/eventos/:id', autenticarToken, verificaradmin, async (req, res) => {
-    const eventoId = req.params.id;
-    
+// =========================================================
+// 2. RUTA DELETE: Eliminar un evento por ID
+// =========================================================
+app.delete('/api/admin/eventos/:id', autenticarToken, verificarAdmin, async (req, res) => {
+    const { id } = req.params;
+
     try {
-        await db.collection('eventos').doc(eventoId).delete();
-        
-        res.status(200).json({ ok: true, mensaje: "Evento eliminado correctamente." });
+        const eventoRef = db.collection('eventos').doc(id);
+        const doc = await eventoRef.get();
+
+        if (!doc.exists) {
+            return res.status(404).json({ mensaje: "Evento no encontrado." });
+        }
+
+        // Se elimina el documento
+        await eventoRef.delete();
+
+        console.log(`Evento eliminado: ${id}`);
+        res.status(200).json({
+            ok: true,
+            mensaje: "Evento eliminado exitosamente."
+        });
+
     } catch (error) {
-        console.error("Error al eliminar evento:", error);
-        res.status(500).json({ ok: false, mensaje: "Error al eliminar evento." });
+        console.error(`Error al eliminar evento ${id}:`, error);
+        res.status(500).json({
+            ok: false,
+            mensaje: "Error interno al eliminar evento."
+        });
     }
 });
 
@@ -1515,23 +1576,42 @@ app.delete('/api/admin/eventos/:id', autenticarToken, verificaradmin, async (req
  * Actualizar evento
  * 💡 RUTA PROTEGIDA
  */
-app.patch('/api/admin/eventos/:id', autenticarToken, verificaradmin, async (req, res) => {
-    const eventoId = req.params.id;
+// =========================================================
+// 3. RUTA PUT/PATCH: Actualizar un evento por ID (ejemplo básico)
+// Se recomienda usar PATCH si solo se envían los campos modificados.
+// =========================================================
+app.put('/api/admin/eventos/:id', autenticarToken, verificarAdmin, async (req, res) => {
+    const { id } = req.params;
     const updates = req.body;
-    
-    if (!updates || Object.keys(updates).length === 0) {
-        return res.status(400).json({ mensaje: "No se proporcionaron datos para actualizar." });
-    }
-    
+
+    // Campos que no se deben actualizar o que requieren validación especial
+    delete updates.id;
+    delete updates.fechaCreacion;
+    updates.fechaActualizacion = new Date();
+
     try {
-        updates.fechaActualizacion = new Date();
-        
-        await db.collection('eventos').doc(eventoId).update(updates);
-        
-        res.status(200).json({ ok: true, mensaje: "Evento actualizado correctamente." });
+        const eventoRef = db.collection('eventos').doc(id);
+        const doc = await eventoRef.get();
+
+        if (!doc.exists) {
+            return res.status(404).json({ mensaje: "Evento no encontrado." });
+        }
+
+        // Actualizar el documento con los datos proporcionados
+        await eventoRef.update(updates);
+
+        console.log(`Evento actualizado: ${id}`);
+        res.status(200).json({
+            ok: true,
+            mensaje: "Evento actualizado exitosamente."
+        });
+
     } catch (error) {
-        console.error("Error al actualizar evento:", error);
-        res.status(500).json({ ok: false, mensaje: "Error al actualizar evento." });
+        console.error(`Error al actualizar evento ${id}:`, error);
+        res.status(500).json({
+            ok: false,
+            mensaje: "Error interno al actualizar evento."
+        });
     }
 });
 
