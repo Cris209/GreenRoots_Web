@@ -234,12 +234,30 @@ app.get("/api/firebase/config", (req, res) => {
 app.post("/api/registro", async (req, res) => {
     const { nombre, email, password, rol } = req.body;
 
-    // 1. Validaciones de Seguridad
+    // 1. Validaciones de Seguridad (Asegurar que 'rol' sea válido)
     const validaciones = [validateNombre(nombre), await validateEmail(email), validatePassword(password)];
     for (const error of validaciones) {
         if (error) return res.status(400).json({ ok: false, mensaje: error });
     }
-    if (!rol) return res.status(400).json({ ok: false, mensaje: "El rol es obligatorio." });
+    
+    if (!rol || !['Voluntario', 'Gobierno'].includes(rol)) {
+        return res.status(400).json({ ok: false, mensaje: "Rol no permitido." });
+    }
+
+    // --- LÓGICA DE VALIDACIÓN DE ROL GOBIERNO ---
+    let rolFinal = rol;
+    let datosAdicionales = {};
+    let mensajeExito = "Usuario registrado y perfil creado correctamente";
+
+    if (rol === 'Gobierno') {
+        // Si solicita rol 'Gobierno', le asignamos 'Voluntario' temporalmente
+        // y guardamos la solicitud con estado 'Pendiente'.
+        rolFinal = 'Voluntario'; 
+        datosAdicionales.rolSolicitado = 'Gobierno';
+        datosAdicionales.estadoValidacionRol = 'Pendiente';
+        mensajeExito = "Solicitud de cuenta Gobierno recibida. Se te ha asignado el rol Voluntario temporalmente. Un administrador validará tu solicitud.";
+    }
+    // ---------------------------------------------
 
     try {
         // PASO 1: CREAR USUARIO EN FIREBASE AUTH
@@ -252,13 +270,15 @@ app.post("/api/registro", async (req, res) => {
         const uid = userRecord.uid;
 
         // PASO 2: GUARDAR PERFIL EN FIRESTORE
+        // Utilizamos rolFinal y añadimos los datos adicionales si existen
         await db.collection("usuarios").doc(uid).set({
             nombre: nombre,
             email: email,
-            rol: rol,
+            rol: rolFinal, 
+            ...datosAdicionales
         });
 
-        res.json({ ok: true, mensaje: "Usuario registrado y perfil creado correctamente" });
+        res.json({ ok: true, mensaje: mensajeExito });
 
     } catch (error) {
         console.error("Error en registro:", error);
