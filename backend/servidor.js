@@ -1066,6 +1066,48 @@ app.patch('/api/admin/campanas/:id', autenticarToken, verificaradmin, async (req
 });
 
 /**
+ * Nueva ruta para generar el Reporte Completo (Árboles, Sensores y Eventos)
+ * 💡 RUTA PROTEGIDA para uso administrativo
+ */
+app.get('/api/reporte/completo', autenticarToken, verificaradmin, async (req, res) => {
+    try {
+        const db = admin.firestore();
+        const reporte = {};
+
+        // 1. Obtener Datos de Árboles
+        const arbolesSnapshot = await db.collection('arboles').get();
+        reporte.arboles = arbolesSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+
+        // 2. Obtener Datos de Sensores (asumiendo que tienes una colección 'sensores')
+        const sensoresSnapshot = await db.collection('sensores').get();
+        reporte.sensores = sensoresSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+
+        // 3. Obtener Datos de Eventos
+        const eventosSnapshot = await db.collection('eventos').get();
+        reporte.eventos = eventosSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+        }));
+
+        res.status(200).json({ 
+            ok: true, 
+            mensaje: "Datos de reporte completo obtenidos.",
+            ...reporte // Devuelve arboles, sensores y eventos
+        });
+
+    } catch (error) {
+        console.error("Error al generar el reporte completo:", error);
+        res.status(500).json({ ok: false, mensaje: "Error interno del servidor al obtener el reporte completo." });
+    }
+});
+
+/**
  * Eliminar campaña
  * 💡 RUTA PROTEGIDA
  */
