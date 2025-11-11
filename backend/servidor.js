@@ -651,9 +651,10 @@ app.patch('/api/eventos/unirse/:id', autenticarToken, async (req, res) => {
 // ===================================
 app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
     const { lat, lon } = req.params;
-    const NASA_POWER_API = "https://power.larc.nasa.gov/api/temporal/daily/point";
-    const MAX_DAYS_BACK = 5; // Intentar buscar datos hasta 5 días atrás
+    const NASA_POWER_API = "https://power.larc.nasa.gov.gov/api/temporal/daily/point"; // URL de la NASA
+    const MAX_DAYS_BACK = 7; // Intentar buscar datos hasta 7 días atrás para mayor robustez
 
+    // 1. Validación de coordenadas
     if (!isValidCoordinate(lat, true) || !isValidCoordinate(lon, false)) {
         return res.status(400).json({
             ok: false,
@@ -665,7 +666,7 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
         let soilData = null;
         let finalDateStr = '';
 
-        // Bucle de reintento: Intenta buscar datos desde hace 2 días hasta MAX_DAYS_BACK
+        // Bucle de reintento: Intenta buscar datos desde hace 2 días hasta 7 días atrás
         for (let daysBack = 2; daysBack <= MAX_DAYS_BACK; daysBack++) {
             const dateToFetch = new Date();
             dateToFetch.setDate(dateToFetch.getDate() - daysBack); // Calcular la fecha 'n' días atrás
@@ -679,8 +680,8 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
             console.log(`Intentando buscar datos de suelo para la fecha: ${finalDateStr}`);
 
             const nasaParams = {
-                parameters: 'SOILM1,TS_1', 
-                community: 'AG',
+                parameters: 'SOILM1,TS_1', // Humedad y Temperatura del Suelo (0-10cm)
+                community: 'AG', // Comunidad Agrícola
                 longitude: lon,
                 latitude: lat,
                 startdate: finalDateStr, 
@@ -691,11 +692,11 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
             const response = await axios.get(NASA_POWER_API, { params: nasaParams });
             const data = response.data;
             
-            // Verificar si los datos están presentes para esa fecha (la clave del objeto de parámetros)
+            // Extraer y verificar la disponibilidad de los datos
             const moistureValue = data.properties.parameter.SOILM1[finalDateStr];
             const tempValue = data.properties.parameter.TS_1[finalDateStr];
             
-            // Si los valores son válidos (no -999 o null), se encontraron datos.
+            // NASA usa -999 o null para valores faltantes
             if (moistureValue !== -999 && moistureValue !== null && tempValue !== -999 && tempValue !== null) {
                 soilData = { moisture: moistureValue, temp: tempValue };
                 console.log(`✅ Datos de suelo encontrados para: ${finalDateStr}`);
@@ -704,6 +705,7 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
         }
 
         if (!soilData) {
+            // Si no se encuentran datos después de 7 días, se devuelve 404
             return res.status(404).json({
                 ok: false,
                 mensaje: `Datos de suelo no disponibles en NASA POWER para los últimos ${MAX_DAYS_BACK} días.`
@@ -711,11 +713,11 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
         }
         
         // --- Lógica de Procesamiento y Respuesta ---
-        const moisturePercent = soilData.moisture * 100;
+        const moisturePercent = (soilData.moisture * 100); // Conversión a porcentaje
         const tempValue = soilData.temp;
         
-        let calidad = 'Desconocida';
-
+        // La calidad del suelo se basa en la humedad de la NASA (complementando tu sensor)
+        let calidad;
         if (moisturePercent >= 18.0 && moisturePercent <= 38.0) {
              calidad = `Óptima (Humedad ${moisturePercent.toFixed(1)}%)`;
         } else if (moisturePercent < 18.0) {
@@ -724,33 +726,36 @@ app.get('/api/soil-quality/:lat/:lon', autenticarToken, async (req, res) => {
             calidad = `Media/Riesgo (Húmedo - Humedad ${moisturePercent.toFixed(1)}%)`;
         }
         
-        const valorAdicional = tempValue.toFixed(1);
+        const valorAdicional = tempValue.toFixed(1); // Temperatura del suelo
 
+        // 5. Respuesta Exitosa
         res.json({
             ok: true,
-            valorOCD_g_kg: valorAdicional, 
+            valorOCD_g_kg: valorAdicional, // Reutilizamos el campo para la Temperatura del Suelo
             calidad: calidad,
-            unidad: `Tierra: ${valorAdicional}°C`, 
-            mensaje: `Datos de calidad del suelo obtenidos de NASA POWER (Fecha: ${finalDateStr}).`,
+            unidad: `Tierra: ${valorAdicional}°C (Fuente NASA)`, 
+            mensaje: `Datos de suelo obtenidos de NASA POWER (Fecha: ${finalDateStr}).`,
             humedad: moisturePercent.toFixed(1)
         });
 
     } catch (error) {
-        // Manejo de error de conexión (Bad Gateway)
         console.error("Error al obtener calidad del suelo de NASA POWER:", error.message || error);
         
-        let detalleError = 'Error de conexión con la API externa.';
-        if (error.response && error.response.statusText) {
+        let detalleError = 'Error de conexión con la API externa (Timeout o Red).';
+        if (error.response) {
              detalleError = `Error de respuesta API: ${error.response.status} (${error.response.statusText})`;
         }
 
-        res.status(502).json({ // Devolver 502 para ser precisos
+        // Devolver 502 si falla la conexión o si la NASA devuelve un error no capturado.
+        res.status(502).json({ 
             ok: false,
             mensaje: "Error de pasarela: Fallo al comunicarse con el servicio de datos del suelo (NASA).",
             detalle: detalleError
         });
     }
 });
+
+
 // ===================================
 // ⚙️ RUTAS DEL ADMINISTRADOR
 // ===================================
