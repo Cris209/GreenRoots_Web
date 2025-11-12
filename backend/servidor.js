@@ -356,6 +356,9 @@ app.post("/api/login", async (req, res) => {
  * Utiliza Firebase Admin SDK.
  * 💡 RUTA PÚBLICA (No requiere autenticación)
  */
+// ===================================
+// 🔐 RUTA: SOLICITAR RESTABLECIMIENTO DE CONTRASEÑA
+// ===================================
 app.post("/api/restablecer-contrasena", async (req, res) => {
     const { email } = req.body;
 
@@ -363,42 +366,48 @@ app.post("/api/restablecer-contrasena", async (req, res) => {
         return res.status(400).json({ ok: false, mensaje: "El correo electrónico es obligatorio." });
     }
 
-    // Validación de formato de email
-    const emailError = await validateEmail(email); 
-    if (emailError) {
-        return res.status(400).json({ ok: false, mensaje: emailError });
-    }
+    // Nota: El backend de Firebase Auth ya valida el formato del email.
+    // Podemos omitir la validación de formato local para ser más concisos.
 
     try {
-        // Enviar el correo de restablecimiento de contraseña
-        // Firebase Auth se encarga de verificar si el correo existe
-        await admin.auth().sendPasswordResetEmail(email);
+        // 💡 CAMBIO CRUCIAL: Usamos la API REST de Firebase para iniciar el flujo de correo de restablecimiento.
+        // Esto requiere la FIREBASE_WEB_API_KEY que declaraste.
+        const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY; 
+        
+        const response = await axios.post(
+            `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${FIREBASE_WEB_API_KEY}`,
+            {
+                requestType: "PASSWORD_RESET",
+                email: email
+            }
+        );
 
-        // Es importante no revelar si el correo existe o no por motivos de seguridad.
-        // Se envía un mensaje genérico de éxito.
+        // Si la llamada a la API es exitosa (código 200), Firebase ya envió el correo.
+        // Por seguridad, siempre devolvemos un mensaje genérico para evitar la enumeración de usuarios.
         res.json({ 
             ok: true, 
             mensaje: "Si el correo está registrado, se ha enviado un enlace para restablecer tu contraseña." 
         });
 
     } catch (error) {
-        console.error("Error al solicitar restablecimiento de contraseña:", error);
+        // El API REST de Firebase devuelve errores específicos en el cuerpo de la respuesta.
+        const firebaseError = error.response ? error.response.data.error : null;
+        console.error("Error al solicitar restablecimiento de contraseña:", firebaseError || error.message);
 
-        // Manejar errores comunes de Firebase Auth
+        // Manejar errores como 'EMAIL_NOT_FOUND' o 'INVALID_EMAIL'
         let mensajeError = "Error interno del servidor al procesar la solicitud.";
         
-        if (error.code === 'auth/user-not-found') {
-            // Por seguridad, devolvemos el mensaje genérico de éxito, incluso si el usuario no existe.
-            // Esto evita la enumeración de usuarios.
-            return res.json({ 
-                ok: true, 
-                mensaje: "Si el correo está registrado, se ha enviado un enlace para restablecer tu contraseña." 
-            });
-        } 
-        
-        if (error.code === 'auth/invalid-email') {
-            mensajeError = "El formato del correo electrónico es inválido.";
-            return res.status(400).json({ ok: false, mensaje: mensajeError });
+        if (firebaseError) {
+            const code = firebaseError.message;
+            
+            if (code === 'EMAIL_NOT_FOUND' || code === 'INVALID_EMAIL') {
+                // Por seguridad, devolvemos el mensaje genérico de éxito, incluso si el usuario no existe
+                // o si el email es inválido (aunque el frontend ya debe validar esto).
+                return res.json({ 
+                    ok: true, 
+                    mensaje: "Si el correo está registrado, se ha enviado un enlace para restablecer tu contraseña." 
+                });
+            }
         }
         
         res.status(500).json({ ok: false, mensaje: mensajeError });
